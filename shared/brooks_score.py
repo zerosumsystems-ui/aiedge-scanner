@@ -170,6 +170,12 @@ UNCERTAINTY_TRAP = 7
 # Phase detection
 SPIKE_MIN_BARS = 3
 TRADING_RANGE_OVERLAP_BARS = 10
+# Minimum |gap| / ADR to classify a day as a "gap event" (Brooks:
+# opening_gap_behavior.md §Special cases — "Small gap (<25% of ADR): not a
+# 'gap event.' Treat the first bar like any other opening bar"). Below this
+# threshold, the `failed_gap` phase is suppressed — intrabar noise on a sub-
+# threshold gap would otherwise misclassify normal opening bars as failed gaps.
+FAILED_GAP_MIN_FRAC_ADR = 0.25
 
 # Minimum bar range to avoid division by zero
 MIN_RANGE = 0.001
@@ -2637,12 +2643,22 @@ def _apply_day_type_weight(raw: float, component: str, day_type: str) -> float:
 # =============================================================================
 
 def _detect_phase(df: pd.DataFrame, spike_bars: int, uncertainty: float,
-                  gap_direction: str, gap_held: bool) -> str:
-    """Determine the current market phase."""
+                  gap_direction: str, gap_held: bool,
+                  abs_gap_frac_adr: float = 0.0) -> str:
+    """Determine the current market phase.
+
+    abs_gap_frac_adr: |gap_size| / ADR. Used to gate `failed_gap`: Brooks
+    treats gaps < 25% of ADR as "not a gap event" (opening_gap_behavior.md
+    §Special cases). On a sub-threshold gap the `gap_held` flag is noise —
+    flipping between True/False on single-cent intrabar excursions — so we
+    suppress the `failed_gap` phase and fall through to normal classification.
+    """
     if spike_bars >= SPIKE_MIN_BARS and len(df) <= spike_bars + 2:
         return "spike"
 
-    if not gap_held and uncertainty > UNCERTAINTY_HIGH:
+    if (not gap_held
+            and uncertainty > UNCERTAINTY_HIGH
+            and abs_gap_frac_adr >= FAILED_GAP_MIN_FRAC_ADR):
         return "failed_gap"
 
     if uncertainty > UNCERTAINTY_HIGH:
@@ -3058,7 +3074,10 @@ def score_gap(
     # STEP 4: Phase, risk/reward, signal, summary
     # ══════════════════════════════════════════════════════════════════════
 
-    phase = _detect_phase(df, spike_bars, uncertainty, gap_direction, gap_held)
+    gap_open = float(df.iloc[0]["open"])
+    abs_gap_frac_adr = abs(gap_open - prior_close) / atr if atr > 0 else 0.0
+    phase = _detect_phase(df, spike_bars, uncertainty, gap_direction, gap_held,
+                          abs_gap_frac_adr=abs_gap_frac_adr)
 
     # Two-pass R/R: detect probable bear-flip BEFORE computing R/R so the
     # risk/reward direction is correct for intraday shorts on gap-up days.
