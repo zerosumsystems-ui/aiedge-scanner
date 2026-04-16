@@ -1202,11 +1202,12 @@ def run_scan(args) -> list[dict]:
         daemon=True,
     ).start()
 
-    # POST to aiedge.trade (fire and forget, no charts initially — charts added after render)
+    # POST to aiedge.trade (fire and forget) — raw OHLC bars flow through; site
+    # renders interactive charts via lightweight-charts (Phase 6).
     threading.Thread(
         target=_post_to_aiedge,
         args=(chart_candidates, now_et, len(snapshot), passed,
-              elapsed_score, args.scan_interval),
+              elapsed_score, args.scan_interval, df5m_for_dash),
         daemon=True,
     ).start()
 
@@ -2051,6 +2052,64 @@ def _build_card_html(r: dict, chart_b64: str | None) -> str:
 
 AIEDGE_SCAN_URL = "https://aiedge.trade/api/scan"
 
+def _serialize_bars(df_5m: pd.DataFrame, last_n: int = 80) -> list[dict]:
+    """5-min OHLCV DataFrame → compact bars list for ScanResult.chart.bars."""
+    if df_5m is None or len(df_5m) == 0:
+        return []
+    df = df_5m.copy()
+    # chart_renderer expects a "datetime" column, but some callers pass an index.
+    if "datetime" in df.columns:
+        df = df.set_index("datetime")
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return []
+    df = df.sort_index().tail(last_n)
+    bars: list[dict] = []
+    for ts, row in df.iterrows():
+        try:
+            bar = {
+                "t": int(pd.Timestamp(ts).timestamp()),
+                "o": float(row["open"]),
+                "h": float(row["high"]),
+                "l": float(row["low"]),
+                "c": float(row["close"]),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+        vol = row.get("volume") if hasattr(row, "get") else None
+        if vol is not None:
+            try:
+                bar["v"] = float(vol)
+            except (TypeError, ValueError):
+                pass
+        bars.append(bar)
+    return bars
+
+
+def _serialize_key_levels(
+    prior_close: float | None,
+    levels: dict | None,
+) -> dict | None:
+    """Map internal levels dict → KeyLevels shape the site expects, or None."""
+    out: dict[str, float] = {}
+    if prior_close and prior_close > 0:
+        out["priorClose"] = float(prior_close)
+    if levels:
+        def _maybe(src_key: str, dst_key: str) -> None:
+            v = levels.get(src_key)
+            if v is not None:
+                try:
+                    out[dst_key] = float(v)
+                except (TypeError, ValueError):
+                    pass
+        _maybe("pdh", "priorDayHigh")
+        _maybe("pdl", "priorDayLow")
+        _maybe("onh", "overnightHigh")
+        _maybe("onl", "overnightLow")
+        _maybe("pmh", "premarketHigh")
+        _maybe("pml", "premarketLow")
+    return out or None
+
+
 def _serialize_scan_payload(
     results: list[dict],
     now_et: datetime,
@@ -2058,7 +2117,7 @@ def _serialize_scan_payload(
     passed: int,
     elapsed: float,
     interval_min: int,
-    chart_b64_map: dict[str, str | None] | None = None,
+    df5m_map: dict[str, pd.DataFrame] | None = None,
 ) -> dict:
     """Convert internal result dicts to the ScanPayload JSON format for aiedge.trade."""
     time_str = now_et.strftime("%I:%M %p").lstrip("0") + " ET"
@@ -2107,9 +2166,18 @@ def _serialize_scan_payload(
         adr_mult = r.get("adr_multiple", 0.0) or 0.0
 
         ticker = r.get("ticker", "?")
-        chart = None
-        if chart_b64_map and ticker in chart_b64_map and chart_b64_map[ticker]:
-            chart = f"data:image/png;base64,{chart_b64_map[ticker]}"
+        chart_obj: dict | None = None
+        if df5m_map is not None:
+            df5 = df5m_map.get(ticker)
+            bars = _serialize_bars(df5) if df5 is not None else []
+            if bars:
+                chart_obj = {"bars": bars, "timeframe": "5min"}
+                kl = _serialize_key_levels(
+                    r.get("_prior_close"),
+                    intraday_levels.get(ticker),
+                )
+                if kl:
+                    chart_obj["keyLevels"] = kl
 
         entry = {
             "ticker": ticker,
@@ -2142,8 +2210,8 @@ def _serialize_scan_payload(
             entry["fillStatus"] = fill_status
         if r.get("day_type_warning"):
             entry["warning"] = r["day_type_warning"]
-        if chart:
-            entry["chartBase64"] = chart
+        if chart_obj:
+            entry["chart"] = chart_obj
 
         serialized.append(entry)
 
@@ -2165,7 +2233,7 @@ def _post_to_aiedge(
     passed: int,
     elapsed: float,
     interval_min: int,
-    chart_b64_map: dict[str, str | None] | None = None,
+    df5m_map: dict[str, pd.DataFrame] | None = None,
 ) -> None:
     """POST scan results to aiedge.trade/api/scan. Fire-and-forget in bg thread."""
     try:
@@ -2179,7 +2247,7 @@ def _post_to_aiedge(
             )
             return
         payload = _serialize_scan_payload(
-            results, now_et, total_symbols, passed, elapsed, interval_min, chart_b64_map
+            results, now_et, total_symbols, passed, elapsed, interval_min, df5m_map
         )
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
