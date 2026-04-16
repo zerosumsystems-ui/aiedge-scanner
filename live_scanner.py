@@ -2050,7 +2050,7 @@ def _build_card_html(r: dict, chart_b64: str | None) -> str:
 
 # ── aiedge.trade Integration ──────────────────────────────────────────────────
 
-AIEDGE_SCAN_URL = "https://aiedge.trade/api/scan"
+AIEDGE_SCAN_URL = "https://www.aiedge.trade/api/scan"  # apex redirects 307 → www and urllib drops POST body on redirect
 
 def _serialize_bars(df_5m: pd.DataFrame, last_n: int = 80) -> list[dict]:
     """5-min OHLCV DataFrame → compact bars list for ScanResult.chart.bars."""
