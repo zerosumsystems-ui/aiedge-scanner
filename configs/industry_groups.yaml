@@ -1,0 +1,206 @@
+# =============================================================
+# Industry Groups Report — Pipeline 7
+# =============================================================
+# Run: python pipeline.py --config configs/industry_groups.yaml
+# Schedule: 4:45 PM ET, Mon-Fri via launchd (after close)
+# =============================================================
+
+pipeline_name: industry_groups
+display_name: "Industry Group Report"
+
+# --- Schedule ---
+schedule:
+  cron: "45 16 * * 1-5"     # 4:45 PM ET, Mon-Fri (after close)
+  timezone: "America/New_York"
+
+# --- Screener ---
+screener:
+  type: "industry_groups"
+  databento:
+    allow_stale_minutes: 60
+  databento_queries:
+    - dataset: "EQUS.MINI"
+      type: "sector_rotation"
+      sectors: true
+      industry_groups: true
+      lookback_days: 5
+  include_economic_calendar: false
+
+# --- Script Writer (Claude) ---
+script:
+  gemini_model: "gemini-2.5-flash"
+  max_tokens_per_run: 10000
+  prompt_template: |
+    You are writing an industry groups rotation report for active traders. The audience knows
+    technical analysis and Brooks price action terminology. Tone: direct, data-driven, no hype.
+    Keep total video length to 5-7 minutes. Be specific with numbers.
+
+    Analyze which sectors and industry groups are showing leadership and which are lagging
+    over the past 5 days. Identify rotation patterns and what they signal for the market.
+
+    NARRATION STYLE — this will be read aloud, so write for the ear, not the eye:
+    - Use contractions naturally (it's, doesn't, we've, there's, that's, you're)
+    - Write like a trader talking to a colleague, not reading a report
+    - Use em dashes (—) for natural pauses; vary sentence length, mix short punchy with longer flowing ones
+    - Avoid robotic transitions like "Let us now turn to" or "Moving on to" or "Additionally"
+    - Write numbers as spoken ("up one point two percent", "down three handles", "around forty bucks")
+    - Use natural transitions where they fit: "Now,", "Look,", "Here's the thing —", "And here's what's interesting —"
+    - Hook and outro: one or two punchy sentences max, no lists
+    - Use ElevenLabs audio tags for pacing: [pause] between key statements, [slows down] before critical price levels, [deliberate] for important numbers
+
+    {screener_data}
+
+    Identify the 2-3 strongest sectors and the specific industry groups within them showing
+    leadership. Identify the 1-2 weakest sectors and whether weakness is broadening or contained.
+    Look for rotation signals: money moving out of one sector and into another is more actionable
+    than uniform strength or weakness. For the leading industry groups, name the best individual
+    stocks setting up within them. Use sector ETFs (XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU,
+    XLB, XLRE) as the chart ticker for sector segments.
+
+    Return ONLY valid JSON matching this schema (no markdown fences, no preamble, no trailing text):
+    {{
+      "title": "string, max 60 chars, includes today's date MM/DD format",
+      "hook": "string, 10-15 second opener, what the sector rotation tells us about market health in one sentence",
+      "segments": [
+        {{
+          "topic": "string — e.g. 'Technology (XLK) — Leading', 'Energy Rotation', 'Weakest Groups'",
+          "narration": "string — 60-90 seconds of natural spoken text per segment",
+          "chart_spec": {{
+            "ticker": "string — sector ETF (e.g. XLK) or leading stock in the group",
+            "timeframe": "60min|daily",
+            "lookback": "int — number of bars",
+            "annotations": {{
+              "entry": "float or null",
+              "stop": "float or null",
+              "target": "float or null",
+              "key_levels": ["float array"],
+              "setup_label": "string or null"
+            }},
+            "overlays": ["20ema", "50ema"]
+          }},
+          "on_screen_text": "string — sector name + 5-day return %, max 40 chars",
+          "duration_seconds": "int"
+        }}
+      ],
+      "outro": "string — 10-15 second close, which sectors and groups to watch for leadership next week"
+    }}
+
+# --- ElevenLabs Narration ---
+elevenlabs:
+  voice_id: "MFZUKuGQUsGJPQjTS4wC"
+  model: "eleven_v3"
+  stability: 0.5
+  similarity_boost: 0.75
+  style: 0.3
+  use_speaker_boost: true
+
+# --- Veo B-roll (Google Vertex AI) ---
+veo:
+  enabled: true
+  skip_entirely: false
+  use_fallback_on_failure: true
+  model: "veo-3.1-fast-generate-001"
+  intro_prompt: "Cinematic shot of multiple sector heatmap screens on trading floor, colorful mosaic of industries, professional analytical atmosphere, shallow depth of field, 16:9"
+  outro_prompt: "Slow pan across city skyline showing diverse industries — tech towers, industrial warehouses, healthcare buildings — cinematic quality, 16:9"
+  duration_seconds: 6
+  aspect_ratio: "16:9"
+
+# --- Video Assembly (ffmpeg) ---
+assembly:
+  resolution: "1920x1080"
+  fps: 30
+  ken_burns:
+    enabled: true
+    zoom_factor: 1.15
+    direction: "auto"
+  captions:
+    enabled: true
+    font: "Helvetica Bold"
+    size: 48
+    position: "bottom"
+    color: "#ffffff"
+    bg_color: "#000000aa"
+  branding:
+    color_primary: "#00ff88"
+    color_secondary: "#ffffff"
+    background: "#0a0a0a"
+    watermark_path: null
+
+# --- YouTube Upload ---
+youtube:
+  enabled: true
+  visibility: "unlisted"
+  channel_credentials: "credentials/youtube_token.json"
+  title_template: "Industry Groups Report — {date} — {top_story}"
+  description_template: |
+    Industry groups rotation report for {date}. Sector leadership, laggards, and rotation patterns over the past 5 days.
+
+    Segments:
+    {segment_list}
+
+    Generated automatically. Not financial advice.
+  tags:
+    - sector rotation
+    - industry groups
+    - market breadth
+    - trading
+    - stock market
+
+# --- Newsletter (Beehiiv) ---
+newsletter:
+  enabled: true
+  platform: "beehiiv"
+  api_key_env: "BEEHIIV_API_KEY"
+  publication_id_env: "BEEHIIV_PUBLICATION_ID"
+  send_as: "draft"
+  subject_template: "{title}"
+  preview_template: "{hook}"
+  body_template: |
+    # {title}
+
+    {hook}
+
+    ---
+
+    {segments_as_markdown}
+
+    ---
+
+    **Watch the full video on YouTube:** {youtube_url}
+
+    **Want real-time alerts and the full screener?** [Upgrade to paid]({paid_tier_url})
+
+    *Generated automatically. Not financial advice.*
+  segment_format: |
+    ## {topic}
+
+    ![{ticker} chart]({chart_url})
+
+    {narration}
+
+    **Key levels:** {key_levels_text}
+  cta_paid_tier: true
+  paid_tier_url: "REPLACE_WITH_STRIPE_OR_BEEHIIV_PAID_LINK"
+
+# --- Notifications ---
+notifications:
+  discord_webhook_url_env: "DISCORD_WEBHOOK_URL"
+  notify_on_failure: true
+  notify_on_success: false
+  daily_digest: true
+  daily_digest_time: "18:00"
+
+# --- Budget ---
+budget:
+  daily_max_usd: 20.0
+
+# --- Cleanup ---
+cleanup:
+  successful_run_days: 7
+  failed_run_days: 30
+
+# --- Logging ---
+logging:
+  level: "INFO"
+  log_to_sqlite: true
+  log_to_file: true

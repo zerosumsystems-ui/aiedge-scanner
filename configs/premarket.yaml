@@ -1,0 +1,212 @@
+# =============================================================
+# Pre-Market Brief — Pipeline 1 (template for all others)
+# =============================================================
+# Run: python pipeline.py --config configs/premarket.yaml
+# Schedule: 8:30 AM ET, Mon-Fri via launchd
+# =============================================================
+
+pipeline_name: premarket
+display_name: "Pre-Market Brief"
+
+# --- Schedule ---
+schedule:
+  cron: "45 8 * * 1-5"     # 8:45 AM ET, Mon-Fri
+  timezone: "America/New_York"
+
+# --- Screener ---
+# Defines what data to pull. The screener stage reads this and
+# calls databento_client with these parameters.
+screener:
+  type: "premarket_brief"
+  databento:
+    allow_stale_minutes: 60
+  databento_queries:
+    # Overnight futures — compute 12 key levels + 15-min Globex session bars
+    - dataset: "GLBX.MDP3"
+      symbols: ["ES.c.0", "NQ.c.0"]
+    # Pre-market movers — stocks gapped >3% with volume
+    - dataset: "EQUS.MINI"
+      type: "premarket_movers"
+      min_pct_change: 3.0
+      min_premarket_volume: 100000
+  include_economic_calendar: true
+
+# --- Script Writer (Claude) ---
+script:
+  gemini_model: "gemini-2.5-flash"
+  max_tokens_per_run: 10000
+  prompt_template: |
+    You are writing a pre-market brief for futures and equities traders. The audience knows
+    technical analysis and Brooks price action terminology. Tone: direct, terse, no hype.
+    Keep total video length to 5-7 minutes. Be specific with numbers.
+
+    STRICT RULE: Do NOT mention trade setups, entries, stops, targets, or any actionable
+    trade ideas. This brief describes overnight price action only — where price went, which
+    key levels it tested or rejected, and what levels are relevant at the open. No setups.
+
+    KEY LEVELS REFERENCE — refer to these by abbreviation in the narration:
+      ONH/ONL/ONO = Overnight High / Low / Open (current Globex session)
+      PDH/PDL/PDO = Prior Day High / Low / Open
+      PWH/PWL/PWO = Prior Week High / Low / Open
+      PMH/PML/PMO = Prior Month High / Low / Open
+    All 12 levels are drawn on the chart. In narration, call them out by name when price
+    is near them — e.g. "ES tested the PDH overnight and rejected," or "trading right at PWL."
+
+    Given the following overnight market data and pre-market screener results:
+
+    NARRATION STYLE — this will be read aloud, so write for the ear, not the eye:
+    - Use contractions naturally (it's, doesn't, we've, there's, that's, you're)
+    - Write like a trader talking to a colleague before the open, not reading a report
+    - Use em dashes (—) for natural pauses; vary sentence length, mix short punchy with longer flowing ones
+    - Avoid robotic transitions like "Let us now turn to" or "Moving on to" or "Additionally"
+    - Write numbers as spoken ("ES is up twelve handles", "trading around forty-two fifty", "down a quarter percent")
+    - Use natural transitions where they fit: "Now,", "Look,", "Here's the thing —", "And here's what's interesting —"
+    - Hook and outro: one or two punchy sentences max, no lists
+    - Use ElevenLabs audio tags for pacing: [pause] between key statements, [slows down] before critical price levels, [deliberate] for important numbers
+
+    {screener_data}
+
+    Return ONLY valid JSON matching this schema (no markdown fences, no preamble, no trailing text):
+    {{
+      "title": "string, max 60 chars, includes today's date MM/DD format",
+      "hook": "string, 10-15 second opener, what mattered overnight in one sentence",
+      "segments": [
+        {{
+          "topic": "string — e.g. ES futures overnight, NQ futures overnight, key levels, premarket movers, economic calendar",
+          "narration": "string — 60-90 seconds of natural spoken text per segment. Reference key level abbreviations (ONH, PDH, etc.) where price interacted with them.",
+          "chart_spec": {{
+            "ticker": "string",
+            "timeframe": "15min",
+            "lookback": "int — number of 15-min bars (use 56 for a full overnight Globex session)",
+            "key_level_refs": ["string array — which levels are relevant to mention: e.g. ONH, PDH, PWL"],
+            "overlays": ["vwap"]
+          }},
+          "on_screen_text": "string — ticker + key number, max 40 chars",
+          "duration_seconds": "int"
+        }}
+      ],
+      "outro": "string — 10-15 second close, which key levels to watch at the open"
+    }}
+
+# --- ElevenLabs Narration ---
+elevenlabs:
+  voice_id: "MFZUKuGQUsGJPQjTS4wC"
+  model: "eleven_v3"
+  stability: 0.5
+  similarity_boost: 0.75
+  style: 0.3
+  use_speaker_boost: true
+
+# --- Veo B-roll (Google Vertex AI) ---
+veo:
+  enabled: true
+  skip_entirely: false
+  use_fallback_on_failure: true
+  model: "veo-3.1-fast-generate-001"
+  intro_prompt: "Cinematic shot of a trading desk at dawn, multiple monitors showing futures charts, soft blue ambient light, professional atmosphere, shallow depth of field, 16:9"
+  outro_prompt: "Slow zoom out from a Wall Street skyline at sunrise, golden hour light, professional cinematic quality, 16:9"
+  duration_seconds: 6
+  aspect_ratio: "16:9"
+
+# --- Video Assembly (ffmpeg) ---
+assembly:
+  resolution: "1920x1080"
+  fps: 30
+  ken_burns:
+    enabled: true
+    zoom_factor: 1.15
+    direction: "auto"      # auto picks zoom-in or pan based on chart aspect
+  captions:
+    enabled: true
+    font: "Helvetica Bold"
+    size: 48
+    position: "bottom"
+    color: "#ffffff"
+    bg_color: "#000000aa"
+  branding:
+    color_primary: "#00ff88"
+    color_secondary: "#ffffff"
+    background: "#0a0a0a"
+    watermark_path: null    # set to path of your logo PNG if desired
+
+# --- YouTube Upload ---
+youtube:
+  enabled: true
+  visibility: "unlisted"    # flip to "public" after verifying quality
+  channel_credentials: "credentials/youtube_token.json"
+  title_template: "Pre-Market Brief — {date} — {top_story}"
+  description_template: |
+    Pre-market brief for {date}. Overnight futures action, key levels, pre-market movers, and economic calendar.
+
+    Segments:
+    {segment_list}
+
+    Generated automatically. Not financial advice.
+  tags:
+    - premarket
+    - futures
+    - trading
+    - stock market
+    - ES
+    - NQ
+    - price action
+    - brooks
+
+# --- Newsletter (Beehiiv) ---
+newsletter:
+  enabled: true
+  platform: "beehiiv"
+  api_key_env: "BEEHIIV_API_KEY"
+  publication_id_env: "BEEHIIV_PUBLICATION_ID"
+  send_as: "draft"          # "draft" | "scheduled" | "immediate"
+  subject_template: "{title}"
+  preview_template: "{hook}"
+  body_template: |
+    # {title}
+
+    {hook}
+
+    ---
+
+    {segments_as_markdown}
+
+    ---
+
+    **Watch the full video on YouTube:** {youtube_url}
+
+    **Want real-time alerts and the full screener?** [Upgrade to paid]({paid_tier_url})
+
+    *Generated automatically. Not financial advice.*
+  segment_format: |
+    ## {topic}
+
+    ![{ticker} chart]({chart_url})
+
+    {narration}
+
+    **Key levels:** {key_levels_text}
+  cta_paid_tier: true
+  paid_tier_url: "REPLACE_WITH_STRIPE_OR_BEEHIIV_PAID_LINK"
+
+# --- Notifications ---
+notifications:
+  discord_webhook_url_env: "DISCORD_WEBHOOK_URL"
+  notify_on_failure: true
+  notify_on_success: false
+  daily_digest: true
+  daily_digest_time: "18:00"     # 6 PM ET
+
+# --- Budget ---
+budget:
+  daily_max_usd: 20.0
+
+# --- Cleanup ---
+cleanup:
+  successful_run_days: 7
+  failed_run_days: 30
+
+# --- Logging ---
+logging:
+  level: "INFO"
+  log_to_sqlite: true
+  log_to_file: true

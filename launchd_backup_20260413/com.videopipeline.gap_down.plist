@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.videopipeline.gap_down</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/williamkosloski/video-pipeline/pipeline.py</string>
+        <string>--config</string>
+        <string>/Users/williamkosloski/video-pipeline/configs/gap_down.yaml</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/williamkosloski/video-pipeline</string>
+
+    <!-- 10:00 AM ET, Mon–Fri -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/Users/williamkosloski/video-pipeline/logs/gap_down/launchd_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/williamkosloski/video-pipeline/logs/gap_down/launchd_stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/williamkosloski/video-pipeline</string>
+    </dict>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

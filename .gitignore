@@ -1,0 +1,53 @@
+# --- Secrets ---
+credentials/
+credentials/.env
+.env
+.env.*
+!.env.template
+!credentials/.env.template
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# --- Output / generated artifacts (1 GB+) ---
+output/
+runs/
+logs/
+cache/
+_qc_out/
+chart_samples/
+
+# --- Local DB / pickles / large data ---
+db/
+*.pkl
+*.pickle
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Benchmark / diagnostic artifacts ---
+benchmark_results.json
+_benchmark_scan*
+_diag_session.py
+_diagnose_score_collapse.py
+_qc_resample.py
+_render_gaps*.py
+_test_*.py
+_validate_universe.py
+
+# --- macOS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

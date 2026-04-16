@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.videopipeline.premarket</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/Users/williamkosloski/video-pipeline/pipeline.py</string>
+        <string>--config</string>
+        <string>/Users/williamkosloski/video-pipeline/configs/premarket.yaml</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/williamkosloski/video-pipeline</string>
+
+    <!-- launchd doesn't support weekday ranges — list Mon–Fri explicitly -->
+    <!-- Weekday: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri -->
+    <!-- Hour/Minute interpreted in system local time; TZ=America/New_York  -->
+    <!-- ensures 8:45 means 8:45 ET regardless of system clock timezone.    -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>45</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/Users/williamkosloski/video-pipeline/logs/premarket/launchd.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/williamkosloski/video-pipeline/logs/premarket/launchd.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/williamkosloski/video-pipeline</string>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>GOOGLE_CLOUD_PROJECT</key>
+        <string>gen-lang-client-0987146855</string>
+    </dict>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

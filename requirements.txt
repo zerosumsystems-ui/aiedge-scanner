@@ -1,0 +1,40 @@
+# Market data
+databento>=0.38.0
+
+# Chart rendering
+mplfinance>=0.12.9b5
+matplotlib>=3.8.0
+numpy>=1.26.0
+pandas>=2.1.0
+
+# AI / script writing
+anthropic>=0.40.0
+
+# Narration
+elevenlabs>=1.0.0
+
+# Video generation (Kling)
+httpx>=0.27.0
+
+# Video assembly
+# ffmpeg must be installed via: brew install ffmpeg
+Pillow>=10.0.0
+
+# YouTube upload
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.2.0
+
+# Newsletter
+requests>=2.31.0
+
+# Config / infrastructure
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+jsonschema>=4.20.0
+
+# Database
+# sqlite3 is stdlib
+
+# Utilities
+Jinja2>=3.1.0
