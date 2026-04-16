@@ -2169,7 +2169,15 @@ def _post_to_aiedge(
 ) -> None:
     """POST scan results to aiedge.trade/api/scan. Fire-and-forget in bg thread."""
     try:
+        import os
         import urllib.request
+        sync_secret = os.environ.get("SYNC_SECRET")
+        if not sync_secret:
+            logger.warning(
+                "aiedge.trade POST skipped: SYNC_SECRET env var not set. "
+                "Export it so the scanner can authenticate with /api/scan."
+            )
+            return
         payload = _serialize_scan_payload(
             results, now_et, total_symbols, passed, elapsed, interval_min, chart_b64_map
         )
@@ -2177,7 +2185,10 @@ def _post_to_aiedge(
         req = urllib.request.Request(
             AIEDGE_SCAN_URL,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {sync_secret}",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
