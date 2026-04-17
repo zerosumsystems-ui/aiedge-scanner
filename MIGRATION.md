@@ -151,9 +151,18 @@ Progress as of 2026-04-17:
       (`_normalize_databento_df` → `normalize.py`; `_resample_to_5min` +
        `SCAN_BAR_SCHEMA` + `SCAN_RESAMPLE` → `resample.py`;
        `_get_default_universe` + fallback universe list → `universe.py`.)
-- [ ] Phase 3j: misc helpers (`_detect_phase`, `_opening_range` helper callers)
+- [x] Phase 3j: move CLI + synthetic-data demo to `bin/brooks_score_cli.py`
+      (`_make_bars`, `_demo_now_like`, `_demo_xle_like`, `_demo_mrvl_like`,
+       `_demo_gap_chop`, `_demo_orcl_like`, `_run_demo`, `_run_scan`, and the
+       `__main__` argparse block). brooks_score.py is now a pure library
+       entry point + compat shim. Run demos via `python bin/brooks_score_cli.py`.
 
-brooks_score.py: 3,928 → 1,333 LOC (2,595 removed so far, 66.1%).
+brooks_score.py: 3,928 → 945 LOC (2,983 removed, **76% reduction**).
+Phase 3 complete — brooks_score.py is now a compat shim that exposes
+`score_gap` / `score_multiple` / `scan_universe` and re-exports all
+moved symbols so existing callers (live_scanner, pattern_lab_api,
+tools, tests) keep working unchanged.
+
 Tests: 179 passing across features/ + context/ + signals/ + risk/ + data/
 (46 + 39 + 78 + 6 + 10) plus 1 pre-existing broken test unrelated
 to this work.
