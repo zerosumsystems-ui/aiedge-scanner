@@ -133,7 +133,8 @@ TIGHT_RANGE_BARS_STRONG = 10   # 10+ bars in tight range = +2
 TIGHT_RANGE_BARS_MODERATE = 6  # 6-9 bars = +1
 
 # ── MA Wrong-Side Closes (uncertainty component 12, +1 pt) ──
-MA_WRONG_SIDE_BARS = 2         # last 2 bars both on wrong side of EMA = +1
+# The "last 2 bars on wrong side of EMA" check is implemented inline
+# below (uses closes[-1] and closes[-2] directly — the 2 is not a tunable).
 
 # ── Two-Sided Trading Ratio (uncertainty component 13, up to +3 pts) ──
 TWO_SIDED_VERY_HIGH = 0.45     # > 45% countertrend bars = +3

@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # Uncertainty + liquidity scoring constants (UNCERTAINTY_RAW_MAX, COLOR_ALT_HIGH,
 # DOJI_RATIO_HIGH, BODY_OVERLAP_HIGH, BEAR_SPIKE_RATIO, BARS_STUCK_THRESHOLD,
 # MIDPOINT_TOLERANCE, STRONG_TREND_WINDOW, UNCERTAINTY_ANALYSIS_WINDOW, REVERSAL_*,
-# TIGHT_RANGE_*, MA_WRONG_SIDE_BARS, TWO_SIDED_*, LIQUIDITY_*) now live in
+# TIGHT_RANGE_*, TWO_SIDED_*, LIQUIDITY_*) now live in
 # aiedge.signals.components (re-imported below in Phase 3f-2).
 
 # ── Opening Range Analysis ──
@@ -197,7 +197,6 @@ from aiedge.signals.components import (  # noqa: E402
     LIQUIDITY_SKIP_BARS,
     MA_GAP_BARS_MODERATE,
     MA_GAP_BARS_STRONG,
-    MA_WRONG_SIDE_BARS,
     MAX_SPIKE_BARS_SCORED,
     MICRO_GAP_BONUS,
     MIDPOINT_TOLERANCE,
