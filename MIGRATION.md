@@ -129,10 +129,12 @@ Progress as of 2026-04-17:
 - [x] Phase 3b: ema, swings, volatility, session → `aiedge/features/*.py` (commit 03f1f12)
 - [x] Phase 3c: cycle-phase classifier → `aiedge/context/phase.py` (commit 91ac1fe)
 - [x] Phase 3d: session-shape classifier → `aiedge/context/shape.py` (commit b8e02ef)
-- [ ] Phase 3e: day-type classifier → `aiedge/context/daytype.py`
+- [x] Phase 3e: day-type classifier → `aiedge/context/daytype.py`
       (`_classify_day_type`, `_apply_day_type_weight`, `_compute_two_sided_ratio`,
-      DAY_TYPE_WEIGHTS matrix, ~600 LOC)
+      `DAY_TYPE_WEIGHTS` matrix — 540 LOC + 21 tests)
 - [ ] Phase 3f: signal components (17 `_score_*` functions) → `aiedge/signals/components.py`
+      (also consolidates `STRONG_BODY_RATIO`, `SPIKE_MIN_BARS` — currently homed in
+      `context/daytype.py` as a temporary convenience)
 - [ ] Phase 3g: risk (`_compute_risk_reward`) → `aiedge/risk/trader_eq.py`
 - [ ] Phase 3h: signal aggregator (`_determine_signal`, `_generate_summary`,
       `_score_bpa_patterns`) → `aiedge/signals/{aggregator,summary}.py`
@@ -140,9 +142,10 @@ Progress as of 2026-04-17:
       `_get_default_universe`) → `aiedge/data/{normalize,resample,universe}.py`
 - [ ] Phase 3j: misc helpers (`_detect_phase`, `_opening_range` helper callers)
 
-brooks_score.py: 3,928 → 3,352 LOC (576 removed so far, 14.7%).
-Tests: 138 passing in features/ + context/ (plus 1 pre-existing broken
-test unrelated to this work).
+brooks_score.py: 3,928 → 2,880 LOC (1,048 removed so far, 26.7%).
+Tests: 85 passing in features/ + context/ (46 features + 39 context,
+including 21 new daytype tests) plus 1 pre-existing broken test
+unrelated to this work.
 
 Each phase leaves brooks_score.py importing from the new modules so
 existing consumers (live_scanner.py, pattern_lab_api.py, tests) keep
