@@ -289,6 +289,9 @@ def backfill_date(date_str: str) -> int:
                     gap_direction=gap_dir,
                     bpa_alignment=score.get("details", {}).get("bpa_alignment"),
                     chart_json=chart_json,
+                    # Backfill evaluates every detection; the whitelist is
+                    # rebuilt FROM this data, so we must not filter by it.
+                    enforce_whitelist=False,
                 )
 
                 if rid is None:

@@ -471,8 +471,11 @@ def score_gap(
     two_sided_raw = _score_two_sided_ratio(df, gap_direction)
     liquidity_gaps_raw = _score_liquidity_gaps(df)
 
-    # BPA pattern overlay (runs detectors, scores alignment with gap direction)
-    bpa_alignment_score, bpa_active_setups = _score_bpa_patterns(df, gap_direction, gap_fill_status)
+    # BPA pattern overlay (runs detectors, scores alignment with gap direction).
+    # Pass ADR so failed_bo can use a volatility-normalized stop buffer.
+    bpa_alignment_score, bpa_active_setups = _score_bpa_patterns(
+        df, gap_direction, gap_fill_status, adr=atr,
+    )
 
     # ══════════════════════════════════════════════════════════════════════
     # STEP 2: Opening range + day type classification

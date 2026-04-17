@@ -59,6 +59,7 @@ def detect_all(df: pd.DataFrame, adr: Optional[float] = None) -> list[BPASetup]:
         return []
 
     setups: list[BPASetup] = []
+    adr_kw_detectors = (_detect_failed_breakout,)
     for detector in (
         _detect_h1, _detect_h2, _detect_l1, _detect_l2,
         _detect_fl1, _detect_fl2, _detect_fh1, _detect_fh2,
@@ -66,7 +67,13 @@ def detect_all(df: pd.DataFrame, adr: Optional[float] = None) -> list[BPASetup]:
         _detect_failed_breakout,
     ):
         try:
-            result = detector(df)
+            # failed_bo uses ADR internally for its stop buffer.
+            # Every other detector computes levels from structural bars alone,
+            # then gets ADR floors applied post-hoc.
+            if detector in adr_kw_detectors:
+                result = detector(df, adr=adr)
+            else:
+                result = detector(df)
             if result and result.detected:
                 if adr is not None and adr > 0:
                     result = _apply_adr_floors(result, adr)
@@ -80,6 +87,53 @@ def detect_all(df: pd.DataFrame, adr: Optional[float] = None) -> list[BPASetup]:
 
 ADR_MIN_RISK_FRAC = 0.2
 ADR_MIN_REWARD_FRAC = 1.5
+
+# First-target R:R cap. Brooks taught "scalp the first target, let a runner
+# ride with the rest." For a scanner that emits a single target, 2R aligns
+# with Brooks' scalper rule of thumb and keeps expected win rate in the
+# 50–65% band (vs 20–30% for unbounded measured-move targets).
+#
+# Setting this higher (e.g. 3.0) trades win rate for bigger winners.
+# Setting lower (e.g. 1.5) pushes win rate up at the cost of EV per trade.
+TARGET_MAX_R_MULT = 2.0
+
+# Per-setup overrides. When a key is present here, its value replaces the
+# flat TARGET_MAX_R_MULT for that setup type. Leave empty (default) to use
+# the flat cap for everything. `recommend_exits.py` emits a paste-ready
+# snippet for this dict after analyzing the full Pattern Lab sample.
+#
+# Example after overnight study:
+#   SETUP_TARGET_R = {
+#       "H1": 1.5,     # data says H1 peaks at 1.5R
+#       "FL2": 3.0,    # traps run further
+#       # others default to TARGET_MAX_R_MULT
+#   }
+SETUP_TARGET_R: dict[str, float] = {}
+
+
+def _r_mult_for(setup_type: str) -> float:
+    """Return the R cap for this setup — override if present, else default."""
+    return SETUP_TARGET_R.get(setup_type, TARGET_MAX_R_MULT)
+
+
+def _cap_long_target(entry: float, stop: float, structural_target: float,
+                     setup_type: str = "") -> float:
+    """Clamp long target to at most (setup override or default) × risk above entry."""
+    risk = entry - stop
+    if risk <= 0:
+        return structural_target
+    r_cap = entry + _r_mult_for(setup_type) * risk
+    return min(structural_target, r_cap) if structural_target > entry else r_cap
+
+
+def _cap_short_target(entry: float, stop: float, structural_target: float,
+                      setup_type: str = "") -> float:
+    """Clamp short target to at most (setup override or default) × risk below entry."""
+    risk = stop - entry
+    if risk <= 0:
+        return structural_target
+    r_cap = entry - _r_mult_for(setup_type) * risk
+    return max(structural_target, r_cap) if structural_target < entry else r_cap
 
 
 def _apply_adr_floors(setup: BPASetup, adr: float) -> BPASetup:
@@ -374,11 +428,10 @@ def _detect_h1(df: pd.DataFrame) -> Optional[BPASetup]:
     if risk <= 0:
         return None
 
-    # Target: measured move of the preceding up-leg (Brooks standard)
+    # Target: measured move of the preceding up-leg, capped at 2R (first target)
     mm = _leg_measured_move_up(df, leg_top_idx)
-    target_price = entry_price + mm if mm > 0 else entry_price + 2 * risk
-    if target_price - entry_price < 2 * risk:
-        target_price = entry_price + 2 * risk
+    structural_target = entry_price + mm if mm > 0 else entry_price + 2 * risk
+    target_price = _cap_long_target(entry_price, stop_price, structural_target, "H1")
 
     return BPASetup(
         detected=True,
@@ -419,9 +472,8 @@ def _detect_l1(df: pd.DataFrame) -> Optional[BPASetup]:
         return None
 
     mm = _leg_measured_move_down(df, leg_bottom_idx)
-    target_price = entry_price - mm if mm > 0 else entry_price - 2 * risk
-    if entry_price - target_price < 2 * risk:
-        target_price = entry_price - 2 * risk
+    structural_target = entry_price - mm if mm > 0 else entry_price - 2 * risk
+    target_price = _cap_short_target(entry_price, stop_price, structural_target, "L1")
 
     return BPASetup(
         detected=True,
@@ -504,11 +556,10 @@ def _detect_h2(df: pd.DataFrame) -> Optional[BPASetup]:
     if risk <= 0:
         return None
 
-    # Target: measured move of the preceding up-leg
+    # Target: measured move of the preceding up-leg, capped at 2R
     mm = _leg_measured_move_up(df, leg_top_idx)
-    target_price = entry_price + mm if mm > 0 else entry_price + 2 * risk
-    if target_price - entry_price < 2 * risk:
-        target_price = entry_price + 2 * risk
+    structural_target = entry_price + mm if mm > 0 else entry_price + 2 * risk
+    target_price = _cap_long_target(entry_price, stop_price, structural_target, "H2")
 
     return BPASetup(
         detected=True,
@@ -569,9 +620,8 @@ def _detect_l2(df: pd.DataFrame) -> Optional[BPASetup]:
         return None
 
     mm = _leg_measured_move_down(df, leg_bottom_idx)
-    target_price = entry_price - mm if mm > 0 else entry_price - 2 * risk
-    if entry_price - target_price < 2 * risk:
-        target_price = entry_price - 2 * risk
+    structural_target = entry_price - mm if mm > 0 else entry_price - 2 * risk
+    target_price = _cap_short_target(entry_price, stop_price, structural_target, "L2")
 
     return BPASetup(
         detected=True,
@@ -642,11 +692,11 @@ def _detect_fl1(df: pd.DataFrame) -> Optional[BPASetup]:
         if risk <= 0:
             continue
 
-        # Target: measured move of the failed bear leg
+        # Target: measured move of the failed bear leg, capped at 2R
         origin_start = max(0, l1_idx - 6)
         leg_high = float(df.iloc[origin_start:l1_idx]["high"].max())
         mm_target = entry_price + (leg_high - l1_low)
-        target_price = max(mm_target, entry_price + 2 * risk)
+        target_price = _cap_long_target(entry_price, stop_price, mm_target, "FL1")
 
         return BPASetup(
             detected=True,
@@ -732,7 +782,7 @@ def _detect_fl2(df: pd.DataFrame) -> Optional[BPASetup]:
     leg_high = float(df.iloc[origin_start:l1_idx]["high"].max())
     leg_low = float(df.iloc[l1_idx:signal_idx]["low"].min())
     mm_target = entry_price + (leg_high - leg_low)
-    target_price = max(mm_target, entry_price + 2 * risk)
+    target_price = _cap_long_target(entry_price, stop_price, mm_target, "FL2")
 
     return BPASetup(
         detected=True,
@@ -789,7 +839,7 @@ def _detect_fh1(df: pd.DataFrame) -> Optional[BPASetup]:
         origin_start = max(0, h1_idx - 6)
         leg_low = float(df.iloc[origin_start:h1_idx]["low"].min())
         mm_target = entry_price - (h1_high - leg_low)
-        target_price = min(mm_target, entry_price - 2 * risk)
+        target_price = _cap_short_target(entry_price, stop_price, mm_target, "FH1")
 
         return BPASetup(
             detected=True,
@@ -871,7 +921,7 @@ def _detect_fh2(df: pd.DataFrame) -> Optional[BPASetup]:
     leg_low = float(df.iloc[origin_start:h1_idx]["low"].min())
     leg_high = float(df.iloc[h1_idx:signal_idx]["high"].max())
     mm_target = entry_price - (leg_high - leg_low)
-    target_price = min(mm_target, entry_price - 2 * risk)
+    target_price = _cap_short_target(entry_price, stop_price, mm_target, "FH2")
 
     return BPASetup(
         detected=True,
@@ -991,18 +1041,20 @@ def _detect_spike_and_channel(df: pd.DataFrame) -> Optional[BPASetup]:
             risk = entry_price - stop_price
             if risk <= 0:
                 continue
-            target_price = entry_price + spike_move
-            if target_price <= entry_price:
-                target_price = entry_price + 2 * risk
+            structural_target = entry_price + spike_move
+            target_price = _cap_long_target(
+                entry_price, stop_price, structural_target, "spike_channel",
+            )
         else:
             entry_price = float(signal["low"])
             stop_price = float(signal["high"])
             risk = stop_price - entry_price
             if risk <= 0:
                 continue
-            target_price = entry_price - spike_move
-            if target_price >= entry_price:
-                target_price = entry_price - 2 * risk
+            structural_target = entry_price - spike_move
+            target_price = _cap_short_target(
+                entry_price, stop_price, structural_target, "spike_channel",
+            )
 
         return BPASetup(
             detected=True,
@@ -1027,8 +1079,19 @@ RANGE_MIN_BOUNDARY_TESTS = 2
 RANGE_WIDTH_AVG_RANGE_MULT = 3.0
 BREAKOUT_LOOKBACK_BARS = 3  # breakout and failure must occur in last N bars
 
+# Stop-buffer calibration for failed_bo (all pre-breakout-knowable):
+# - ADR fraction is the primary source when adr is provided (via detect_all).
+#   Daily volatility is the most stable cross-instrument normalizer.
+# - Stdev fallback (avg + 2σ of range-window bar ranges) adapts to the
+#   range's own noisiness when ADR isn't available.
+# - Width floor prevents absurdly tight stops on very quiet ranges.
+FAILED_BO_ADR_STOP_FRAC = 0.10
+FAILED_BO_STDEV_MULT = 2.0
+FAILED_BO_WIDTH_FLOOR_FRAC = 0.10
 
-def _detect_failed_breakout(df: pd.DataFrame) -> Optional[BPASetup]:
+
+def _detect_failed_breakout(df: pd.DataFrame, adr: Optional[float] = None
+                            ) -> Optional[BPASetup]:
     """
     Failed breakout from a real trading range. The range must be:
       - At least RANGE_MIN_BARS long
@@ -1080,19 +1143,35 @@ def _detect_failed_breakout(df: pd.DataFrame) -> Optional[BPASetup]:
 
     failure_abs_idx = signal_idx
 
+    # Stop buffer past the boundary. Pre-breakout-knowable:
+    #   Primary:  ADR × 10%           (cross-instrument normalization)
+    #   Fallback: avg + 2σ of bar ranges   (adapts to range-window noise)
+    #   Floor:    10% of range width        (sane minimum on tight ranges)
+    bar_ranges = range_slice["high"] - range_slice["low"]
+    stdev_bar_range = float(bar_ranges.std()) if len(bar_ranges) > 1 else 0.0
+    stdev_buffer = avg_bar_range + FAILED_BO_STDEV_MULT * stdev_bar_range
+
+    if adr is not None and adr > 0:
+        vol_buffer = adr * FAILED_BO_ADR_STOP_FRAC
+    else:
+        vol_buffer = stdev_buffer
+
+    stop_buffer = max(vol_buffer, width * FAILED_BO_WIDTH_FLOOR_FRAC)
+
     if breakout_direction == "up":
         entry_price = RH  # short at the reclaimed boundary
-        stop_price = float(breakout_bar["high"])
-        target_price = RL
+        stop_price = RH + stop_buffer
         risk = stop_price - entry_price
+        if risk <= 0:
+            return None
+        target_price = _cap_short_target(entry_price, stop_price, RL, "failed_bo")
     else:
         entry_price = RL
-        stop_price = float(breakout_bar["low"])
-        target_price = RH
+        stop_price = RL - stop_buffer
         risk = entry_price - stop_price
-
-    if risk <= 0:
-        return None
+        if risk <= 0:
+            return None
+        target_price = _cap_long_target(entry_price, stop_price, RH, "failed_bo")
 
     return BPASetup(
         detected=True,
