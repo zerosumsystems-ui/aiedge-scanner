@@ -177,8 +177,11 @@ TRADING_RANGE_OVERLAP_BARS = 10
 # threshold gap would otherwise misclassify normal opening bars as failed gaps.
 FAILED_GAP_MIN_FRAC_ADR = 0.25
 
-# Minimum bar range to avoid division by zero
-MIN_RANGE = 0.001
+# MIN_RANGE and the candle helpers (_safe_range, _body, _body_ratio,
+# _is_bull, _is_bear, _lower_tail_pct, _upper_tail_pct, _close_position)
+# now live in aiedge.features.candles. Re-imported below for internal
+# callers in this file and for any external consumer that still does
+# `from shared.brooks_score import _body`.
 
 # ── Feature flags (backward compat) ──
 GAP_INTEGRITY_POST_FILL_EVAL = True   # False → restores blanket -2.0 on any filled gap
@@ -198,50 +201,19 @@ SIGNAL_BUY_INTRADAY = "BUY_PULLBACK_INTRADAY"
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS — candle/bar math extracted to aiedge.features.candles
 # =============================================================================
-
-def _safe_range(row) -> float:
-    """Bar range, floored to avoid division by zero."""
-    return max(row["high"] - row["low"], MIN_RANGE)
-
-
-def _body(row) -> float:
-    """Absolute body size."""
-    return abs(row["close"] - row["open"])
-
-
-def _body_ratio(row) -> float:
-    """Body as fraction of range."""
-    return _body(row) / _safe_range(row)
-
-
-def _is_bull(row) -> bool:
-    return row["close"] > row["open"]
-
-
-def _is_bear(row) -> bool:
-    return row["close"] < row["open"]
-
-
-def _lower_tail_pct(row) -> float:
-    """Lower tail as fraction of range (for bull bars: open-low, for bear: close-low)."""
-    rng = _safe_range(row)
-    body_bottom = min(row["open"], row["close"])
-    return (body_bottom - row["low"]) / rng
-
-
-def _upper_tail_pct(row) -> float:
-    """Upper tail as fraction of range."""
-    rng = _safe_range(row)
-    body_top = max(row["open"], row["close"])
-    return (row["high"] - body_top) / rng
-
-
-def _close_position(row) -> float:
-    """Where the close sits in the bar's range (0 = low, 1 = high)."""
-    rng = _safe_range(row)
-    return (row["close"] - row["low"]) / rng
+from aiedge.features.candles import (  # noqa: E402  (import after constants)
+    MIN_RANGE,
+    _safe_range,
+    _body,
+    _body_ratio,
+    _is_bull,
+    _is_bear,
+    _lower_tail_pct,
+    _upper_tail_pct,
+    _close_position,
+)
 
 
 # =============================================================================
