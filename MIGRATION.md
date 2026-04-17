@@ -220,8 +220,10 @@ Progress as of 2026-04-17:
       (`annotate_adr_multiple` refactored to take `daily_atrs` as a parameter;
        live_scanner keeps a 3-arg wrapper that binds to its global. ETF_FAMILIES
        + SAME_COMPANY + _TICKER_TO_FAMILY moved alongside the dedup function.)
-- [ ] Phase 4f: pattern-lab logging (`_log_pattern_lab_detections`,
-      `_update_pattern_lab_outcomes`) → `aiedge/storage/pattern_lab.py`
+- [x] Phase 4f: pattern-lab logging (`log_pattern_lab_detections`,
+      `update_pattern_lab_outcomes`) → `aiedge/storage/pattern_lab.py`
+      (`update_pattern_lab_outcomes` refactored to take bars/bars_lock as
+       parameters; live_scanner keeps private wrappers that bind its globals.)
 - [ ] Phase 4g: dashboard HTML (`_build_*_html`, `_bar_html`, `_signal_badge`,
       `_movement_html`, `_format_note_text`, `_generate_dashboard`,
       `print_leaderboard`) → `aiedge/dashboard/{html_cards,render}.py`
@@ -233,8 +235,10 @@ Progress as of 2026-04-17:
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 2,319 LOC (653 removed so far, 22.0%).
+live_scanner.py: 2,972 → 2,126 LOC (846 removed so far, 28.5%).
 Tests: 218 passing across features/ + context/ + signals/ + risk/ + data/.
+(No new tests for pattern_lab — the functions wrap shared.pattern_lab
+which has SQLite dependencies not worth mocking mid-refactor.)
 
 ### Phase 4 (original map)
 
