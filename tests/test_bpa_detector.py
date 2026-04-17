@@ -477,6 +477,38 @@ class DetectAllTests(unittest.TestCase):
             self.assertEqual(indices, sorted(indices, reverse=True))
 
 
+class FailedBoStopNotFromBreakoutBarTests(unittest.TestCase):
+    """
+    The failed_bo stop must be computable BEFORE the breakout bar exists,
+    because the limit at the boundary fills mid-breakout-bar when the bar's
+    final high/low is unknown. Test: swap the breakout bar's extreme for a
+    much more violent one and confirm the stop is unchanged.
+    """
+
+    def test_stop_independent_of_breakout_bar_extreme(self):
+        from shared.bpa_detector import _detect_failed_breakout
+
+        df = _failed_bo_up_canonical()
+        baseline = _detect_failed_breakout(df.copy())
+        self.assertIsNotNone(baseline)
+        self.assertEqual(baseline.setup_type, "failed_bo")
+
+        # Move the breakout bar's high up dramatically — if the stop was
+        # derived from it, the stop would move with it.
+        df_moved = df.copy()
+        idx = len(df_moved) - 2  # breakout bar sits at signal_idx - 1
+        df_moved.iloc[idx, df_moved.columns.get_loc("high")] = (
+            float(df_moved.iloc[idx]["high"]) + 5.0
+        )
+        moved = _detect_failed_breakout(df_moved)
+        self.assertIsNotNone(moved)
+        self.assertEqual(
+            moved.stop, baseline.stop,
+            f"Stop moved with breakout bar high — this is hindsight. "
+            f"baseline={baseline.stop}, moved={moved.stop}",
+        )
+
+
 class EntryModeTests(unittest.TestCase):
     """Each setup's entry_mode must match Brooks' canonical entry method."""
 

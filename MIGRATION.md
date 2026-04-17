@@ -290,19 +290,39 @@ still runs main() (which lives in aiedge.runners.live).
 - `risk/trader_eq.py` computes edge from (setup, prior, R:R).
 - Delete `_score_bpa_patterns` — it was the post-hoc hack.
 
-### Phase 6 — New capabilities
+### Phase 6 — New capabilities (complete 2026-04-17)
 
-Added in service of the 7-step plan from the previous session:
+All 8 modules implemented + tested. These are net-new code — they
+don't replace anything in the scanner's current path, but the Phase 5
+aggregator-rewrite will consume them.
 
-- `features/regime.py` — vol regime (ATR percentile, realized vol tercile)
-- `context/htf.py` — daily/weekly alignment check
-- `risk/priors.py` + `storage/priors_store.py` — empirical probability
-- `analysis/walkforward.py` — rolling train/test split
-- `analysis/reliability.py` — calibration diagram
-- `analysis/equity.py` — equity curves, Sharpe, DD, Sortino
-- `analysis/correlation.py` — cluster correlated instruments
-- `analysis/failure.py` — root-cause taxonomy
-- `storage/pattern_lab.py` — add `failure_reason`, regime fields
+- [x] `features/regime.py` — `atr_percentile`, `realized_vol_tercile`
+- [x] `context/htf.py` — `classify_htf_alignment(daily, weekly, direction)`
+      → returns {"aligned" | "mixed" | "opposed" | "no_data"}
+- [x] `risk/priors.py` + `storage/priors_store.py` — SQLite-backed
+      empirical win-rate lookup with 5-level fallback hierarchy
+      (exact → regime+align → regime → setup → default)
+- [x] `analysis/walkforward.py` — `rolling_window`, `expanding_window`,
+      `by_date` — lazy generators of train/test index splits
+- [x] `analysis/reliability.py` — `reliability_table`, `brier_score`,
+      `expected_calibration_error`
+- [x] `analysis/equity.py` — `equity_curve`, `sharpe`, `sortino`,
+      `max_drawdown`, `summary_stats` (one-call dashboard)
+- [x] `analysis/correlation.py` — `log_returns`, `correlation_matrix`,
+      `cluster_by_threshold`, `dedup_correlated` (data-driven ETF-family
+      complement)
+- [x] `analysis/failure.py` — `classify_failure` taxonomy
+      (stop_flush / slow_bleed / reversal / news_shock / chop / unknown)
+      + `failure_breakdown` aggregator
+- [ ] `storage/pattern_lab.py` — add `failure_reason`, regime fields.
+      Deferred: schema migration requires a Pattern Lab rebuild (see
+      `project_pattern_lab.md`). Do this alongside Phase 5's aggregator
+      rewrite.
+
+New tests: 103 added across analysis/, context/htf/, risk/priors,
+storage/priors_store, features/regime.
+
+Test suite after Phase 6: **440 passed**.
 
 ### Phase 7 — Package properly (complete 2026-04-17)
 
