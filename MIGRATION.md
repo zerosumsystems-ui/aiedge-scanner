@@ -134,8 +134,9 @@ Progress as of 2026-04-17:
       `DAY_TYPE_WEIGHTS` matrix — 540 LOC + 21 tests)
 - [x] Phase 3f-1: urgency scorers (15 `_score_*` + `_find_first_pullback` helper)
       → `aiedge/signals/components.py`
-- [ ] Phase 3f-2: uncertainty scorers (`_score_uncertainty`, `_score_two_sided_ratio`,
-      `_score_liquidity_gaps`, `_check_liquidity`) → `aiedge/signals/components.py`
+- [x] Phase 3f-2: uncertainty scorers (`_score_uncertainty`, `_score_two_sided_ratio`,
+      `_score_liquidity_gaps`) + `_check_liquidity` hard-gate helper
+      → `aiedge/signals/components.py`
       (Note: `STRONG_BODY_RATIO` and `SPIKE_MIN_BARS` remain in `context/daytype.py`
        for now — signals → context is allowed by layer rules, so components.py
        imports them from daytype. Phase 3h may promote them to `features/candles.py`.)
@@ -146,9 +147,9 @@ Progress as of 2026-04-17:
       `_get_default_universe`) → `aiedge/data/{normalize,resample,universe}.py`
 - [ ] Phase 3j: misc helpers (`_detect_phase`, `_opening_range` helper callers)
 
-brooks_score.py: 3,928 → 1,978 LOC (1,950 removed so far, 49.6%).
-Tests: 124 passing in features/ + context/ + signals/ (46 features +
-39 context + 39 signals) plus 1 pre-existing broken test unrelated
+brooks_score.py: 3,928 → 1,693 LOC (2,235 removed so far, 56.9%).
+Tests: 137 passing in features/ + context/ + signals/ (46 features +
+39 context + 52 signals) plus 1 pre-existing broken test unrelated
 to this work.
 
 Each phase leaves brooks_score.py importing from the new modules so

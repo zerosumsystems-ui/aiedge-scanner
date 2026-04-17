@@ -20,14 +20,18 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from aiedge.signals.components import (
+    LIQUIDITY_MIN_DOLLAR_VOL,
     SPT_LOOKBACK_BARS,
+    UNCERTAINTY_RAW_MAX,
     URGENCY_RAW_MAX,
+    _check_liquidity,
     _find_first_pullback,
     _score_body_gaps,
     _score_failed_counter_setups,
     _score_follow_through,
     _score_gap_integrity,
     _score_levels_broken,
+    _score_liquidity_gaps,
     _score_ma_separation,
     _score_majority_trend_bars,
     _score_micro_gaps,
@@ -37,6 +41,8 @@ from aiedge.signals.components import (
     _score_tail_quality,
     _score_trending_everything,
     _score_trending_swings,
+    _score_two_sided_ratio,
+    _score_uncertainty,
     _score_volume_confirmation,
 )
 
@@ -301,6 +307,89 @@ class UrgencyRawMaxTests(unittest.TestCase):
 
     def test_raw_max_positive(self):
         self.assertGreater(URGENCY_RAW_MAX, 0)
+
+
+# ── Phase 3f-2 uncertainty scorer tests ──
+
+class CheckLiquidityTests(unittest.TestCase):
+
+    def test_no_volume_col_fails(self):
+        df = trend_up_df(10).drop(columns=["volume"])
+        result = _check_liquidity(df)
+        self.assertFalse(result["passed"])
+
+    def test_too_few_bars_fails(self):
+        df = trend_up_df(2)
+        result = _check_liquidity(df)
+        self.assertFalse(result["passed"])
+
+    def test_high_volume_passes(self):
+        df = trend_up_df(20)
+        df["volume"] = 1_000_000  # $100 × 1M = $100M per bar
+        result = _check_liquidity(df)
+        self.assertTrue(result["passed"])
+        self.assertGreater(result["avg_dollar_vol"], LIQUIDITY_MIN_DOLLAR_VOL)
+
+    def test_returns_expected_keys(self):
+        df = trend_up_df(20)
+        result = _check_liquidity(df)
+        for key in ("passed", "avg_dollar_vol", "bars_measured"):
+            self.assertIn(key, result)
+
+
+class LiquidityGapsTests(unittest.TestCase):
+
+    def test_short_df_zero(self):
+        self.assertEqual(_score_liquidity_gaps(trend_up_df(3)), 0.0)
+
+    def test_no_gaps_scores_zero(self):
+        # close → next open is always the same (no gap) by construction
+        opens = [100.0] * 20
+        closes = [100.1] * 20
+        highs = [100.2] * 20
+        lows = [99.9] * 20
+        df = mk_df(opens, closes, highs=highs, lows=lows)
+        self.assertEqual(_score_liquidity_gaps(df), 0.0)
+
+    def test_bounded(self):
+        v = _score_liquidity_gaps(trend_up_df(20))
+        self.assertGreaterEqual(v, 0.0)
+        self.assertLessEqual(v, 2.0)
+
+
+class TwoSidedRatioTests(unittest.TestCase):
+
+    def test_pure_bull_scored_up_is_zero(self):
+        self.assertEqual(_score_two_sided_ratio(trend_up_df(10), "up"), 0.0)
+
+    def test_pure_bull_scored_down_hits_cap(self):
+        # all 10 bars are bull → countertrend ratio = 1.0 for bear direction
+        self.assertEqual(_score_two_sided_ratio(trend_up_df(10), "down"), 3.0)
+
+
+class UncertaintyTests(unittest.TestCase):
+
+    def test_tiny_df_returns_half_max(self):
+        df = trend_up_df(2)
+        score, dirn = _score_uncertainty(df, "up")
+        self.assertAlmostEqual(score, UNCERTAINTY_RAW_MAX * 0.5, places=5)
+        self.assertEqual(dirn, "unclear")
+
+    def test_bull_trend_returns_always_in_long(self):
+        df = trend_up_df(20)
+        _score, direction = _score_uncertainty(df, "up")
+        self.assertEqual(direction, "long")
+
+    def test_bear_trend_returns_always_in_short(self):
+        df = trend_down_df(20)
+        _score, direction = _score_uncertainty(df, "down")
+        self.assertEqual(direction, "short")
+
+    def test_score_non_negative(self):
+        for df_fn in (trend_up_df, trend_down_df, chop_df):
+            for dirn in ("up", "down"):
+                score, _ = _score_uncertainty(df_fn(20), dirn)
+                self.assertGreaterEqual(score, 0.0)
 
 
 if __name__ == "__main__":

@@ -1,17 +1,18 @@
-"""Signal scoring components — urgency subsystem.
+"""Signal scoring components — urgency + uncertainty subsystems.
 
 Each function returns a *raw* component score in a bounded range.
 Downstream aggregators apply day-type weights (`context/daytype.py`),
-combine components, and normalize to the 0-10 urgency scale.
+combine components, and normalize to the 0-10 urgency / uncertainty
+scales.
 
 All functions are pure: they consume a 5-minute OHLCV DataFrame and
 (sometimes) a direction / prior-close / spike-bar count. No I/O, no
 global state.
 
-Phase 3f-1 carves the 15 urgency scorers + the `_find_first_pullback`
-helper out of shared/brooks_score.py. The uncertainty scorers
-(`_score_uncertainty`, `_score_two_sided_ratio`, `_score_liquidity_gaps`)
-will move in Phase 3f-2.
+Phase 3f-1 carved the 15 urgency scorers + `_find_first_pullback` helper.
+Phase 3f-2 adds the uncertainty scorers (`_score_uncertainty`,
+`_score_two_sided_ratio`, `_score_liquidity_gaps`) and the
+`_check_liquidity` hard-gate helper.
 """
 
 from typing import Optional
@@ -19,9 +20,15 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from aiedge.context.daytype import SPIKE_MIN_BARS, STRONG_BODY_RATIO
+from aiedge.context.daytype import (
+    SPIKE_MIN_BARS,
+    STRONG_BODY_RATIO,
+    _compute_two_sided_ratio,
+)
 from aiedge.features.candles import (
+    DOJI_BODY_RATIO,
     MIN_RANGE,
+    _body,
     _body_ratio,
     _close_position,
     _is_bear,
@@ -96,8 +103,53 @@ SPT_TREND_BODY_RATIO = 0.40    # body/range threshold for "trend bar" in SPT
 SPT_DEPTH_SHALLOW = 0.25       # all pullbacks below this → perfect
 SPT_DEPTH_MODERATE = 0.40      # avg below this → strong
 
-# ── Normalization ──
+# ── Normalization (urgency) ──
 URGENCY_RAW_MAX = 29.0         # 26 old + 3 small_pullback_trend (SPT, new)
+
+# =============================================================================
+# UNCERTAINTY CONSTANTS
+# =============================================================================
+
+# ── Normalization (uncertainty) ──
+UNCERTAINTY_RAW_MAX = 22.0     # raised: 17 old + 3 two-sided + 2 day-type adjustments
+
+# ── Uncertainty thresholds ──
+COLOR_ALT_HIGH = 0.60          # alternation rate above this = high uncertainty
+DOJI_RATIO_HIGH = 0.40         # doji ratio above this = high uncertainty
+BODY_OVERLAP_HIGH = 0.50       # overlap ratio above this = trading range behavior
+BEAR_SPIKE_RATIO = 0.75        # bear spike >= 75% of bull spike = two-sided
+BARS_STUCK_THRESHOLD = 10      # bars since last new high/low = stuck
+MIDPOINT_TOLERANCE = 0.20      # within 20% of center = no one winning
+STRONG_TREND_WINDOW = 5        # look at last N bars for always-in detection
+UNCERTAINTY_ANALYSIS_WINDOW = 15  # bars to analyze for uncertainty metrics
+
+# ── Reversal Count (uncertainty component 9, up to +2 pts) ──
+REVERSAL_HIGH = 4              # 4+ reversals in window = +2
+REVERSAL_MODERATE = 3          # 3 reversals = +1
+
+# ── Tight Range (uncertainty component 11, up to +2 pts) ──
+TIGHT_RANGE_PCT = 0.005        # highs and lows within 0.5% of each other
+TIGHT_RANGE_BARS_STRONG = 10   # 10+ bars in tight range = +2
+TIGHT_RANGE_BARS_MODERATE = 6  # 6-9 bars = +1
+
+# ── MA Wrong-Side Closes (uncertainty component 12, +1 pt) ──
+MA_WRONG_SIDE_BARS = 2         # last 2 bars both on wrong side of EMA = +1
+
+# ── Two-Sided Trading Ratio (uncertainty component 13, up to +3 pts) ──
+TWO_SIDED_VERY_HIGH = 0.45     # > 45% countertrend bars = +3
+TWO_SIDED_HIGH = 0.35          # 35-45% = +2
+TWO_SIDED_MODERATE = 0.25      # 25-35% = +1
+
+# ── Liquidity Filter (hard gate in scan_universe) ──
+LIQUIDITY_MIN_DOLLAR_VOL = 350_000  # min avg dollar volume per 5-min bar ($350K)
+LIQUIDITY_SKIP_BARS = 3             # skip first 3 bars (opening auction noise)
+
+# ── Liquidity Gaps (uncertainty component 14, up to +2 pts) ──
+# Penalizes mid-session bar-to-bar price gaps (illiquid jumps)
+LIQUIDITY_GAP_PCT = 0.003           # gap > 0.3% of price between consecutive bars
+LIQUIDITY_GAPS_HIGH = 5             # 5+ mid-session gaps = +2 uncertainty
+LIQUIDITY_GAPS_MODERATE = 3         # 3-4 gaps = +1
+LIQUIDITY_GAPS_LOW = 1              # 1-2 gaps = +0.5
 
 
 # =============================================================================
@@ -1027,3 +1079,289 @@ def _score_spike_duration(df: pd.DataFrame, spike_bars: int, gap_direction: str)
     elif sustained >= 3:
         return 0.0
     return -0.5
+
+
+# =============================================================================
+# UNCERTAINTY COMPONENTS + LIQUIDITY GATE
+# =============================================================================
+
+def _check_liquidity(df: pd.DataFrame) -> dict:
+    """Hard liquidity gate for `scan_universe()`.
+
+    Computes average dollar volume per 5-min bar (skipping the first 3 bars
+    to avoid opening-auction noise). Returns a dict with pass/fail and the
+    metrics. This is a gate, not a score, but it shares liquidity tunables
+    with `_score_liquidity_gaps` so it lives here.
+    """
+    if "volume" not in df.columns or len(df) <= LIQUIDITY_SKIP_BARS:
+        return {"passed": False, "avg_dollar_vol": 0.0, "bars_measured": 0}
+
+    measured = df.iloc[LIQUIDITY_SKIP_BARS:]
+    if len(measured) == 0:
+        return {"passed": False, "avg_dollar_vol": 0.0, "bars_measured": 0}
+
+    # Dollar volume per bar = bar's VWAP-ish price × volume
+    # Use (high + low + close) / 3 as a typical price proxy
+    typical_price = (measured["high"] + measured["low"] + measured["close"]) / 3
+    dollar_vol_per_bar = (typical_price * measured["volume"]).values
+    avg_dollar_vol = float(np.mean(dollar_vol_per_bar))
+
+    return {
+        "passed": avg_dollar_vol >= LIQUIDITY_MIN_DOLLAR_VOL,
+        "avg_dollar_vol": round(avg_dollar_vol, 0),
+        "bars_measured": len(measured),
+    }
+
+
+def _score_liquidity_gaps(df: pd.DataFrame) -> float:
+    """Uncertainty component: penalizes mid-session bar-to-bar price gaps (0 to +2 raw).
+
+    Illiquid stocks jump between bars — the close-to-open gap between consecutive
+    bars is large relative to price. This makes price action unreliable.
+    Skips first 3 bars (opening auction) since those gaps are normal.
+    """
+    if len(df) <= LIQUIDITY_SKIP_BARS + 1:
+        return 0.0
+
+    gap_count = 0
+    measured = df.iloc[LIQUIDITY_SKIP_BARS:]
+
+    for i in range(1, len(measured)):
+        prev_close = measured.iloc[i - 1]["close"]
+        curr_open = measured.iloc[i]["open"]
+        if prev_close <= MIN_RANGE:
+            continue
+        gap_pct = abs(curr_open - prev_close) / prev_close
+        if gap_pct > LIQUIDITY_GAP_PCT:
+            gap_count += 1
+
+    if gap_count >= LIQUIDITY_GAPS_HIGH:
+        return 2.0
+    elif gap_count >= LIQUIDITY_GAPS_MODERATE:
+        return 1.0
+    elif gap_count >= LIQUIDITY_GAPS_LOW:
+        return 0.5
+    return 0.0
+
+
+def _score_two_sided_ratio(df: pd.DataFrame, gap_direction: str) -> float:
+    """Uncertainty component: Two-sided trading ratio (up to +3 raw).
+
+    High ratio of countertrend bars = more uncertainty. The ratio itself is
+    computed in `context.daytype` because day-type classification needs the
+    same metric.
+    """
+    ratio = _compute_two_sided_ratio(df, gap_direction)
+
+    if ratio > TWO_SIDED_VERY_HIGH:
+        return 3.0
+    elif ratio > TWO_SIDED_HIGH:
+        return 2.0
+    elif ratio > TWO_SIDED_MODERATE:
+        return 1.0
+    return 0.0
+
+
+def _score_uncertainty(df: pd.DataFrame, gap_direction: str) -> tuple[float, str]:
+    """Score how confused/two-sided the chart is (12 components).
+
+    Returns (raw_uncertainty_score, always_in_direction).
+    """
+    n = min(len(df), UNCERTAINTY_ANALYSIS_WINDOW)
+    if n < 3:
+        return UNCERTAINTY_RAW_MAX * 0.5, "unclear"
+
+    recent = df.iloc[-n:].reset_index(drop=True)
+    uncertainty = 0.0
+
+    # ── 1. Color alternation rate (up to +3) ──
+    color_changes = 0
+    for i in range(1, len(recent)):
+        if _is_bull(recent.iloc[i - 1]) != _is_bull(recent.iloc[i]):
+            color_changes += 1
+    alt_rate = color_changes / max(len(recent) - 1, 1)
+    if alt_rate > COLOR_ALT_HIGH:
+        uncertainty += 3.0
+
+    # ── 2. Doji ratio (up to +2) ──
+    doji_count = sum(1 for i in range(len(recent)) if _body_ratio(recent.iloc[i]) < DOJI_BODY_RATIO)
+    if len(recent) > 0 and (doji_count / len(recent)) > DOJI_RATIO_HIGH:
+        uncertainty += 2.0
+
+    # ── 3. Body overlap ratio (up to +2) ──
+    overlaps = []
+    for i in range(1, len(recent)):
+        prev_top = max(recent.iloc[i - 1]["open"], recent.iloc[i - 1]["close"])
+        prev_bot = min(recent.iloc[i - 1]["open"], recent.iloc[i - 1]["close"])
+        curr_top = max(recent.iloc[i]["open"], recent.iloc[i]["close"])
+        curr_bot = min(recent.iloc[i]["open"], recent.iloc[i]["close"])
+        overlap = max(0, min(prev_top, curr_top) - max(prev_bot, curr_bot))
+        avg_body = (_body(recent.iloc[i - 1]) + _body(recent.iloc[i])) / 2
+        if avg_body > MIN_RANGE:
+            overlaps.append(overlap / avg_body)
+    if overlaps and np.mean(overlaps) > BODY_OVERLAP_HIGH:
+        uncertainty += 2.0
+
+    # ── 4. Counter-spike present (up to +2) ──
+    if gap_direction == "up":
+        bull_move = df["high"].max() - df.iloc[0]["low"]
+        bear_move = 0
+        for i in range(len(df) - 2):
+            if _is_bear(df.iloc[i]) or _is_bear(df.iloc[i + 1]):
+                w_range = df.iloc[i:i + 3]["high"].max() - df.iloc[i:i + 3]["low"].min()
+                bear_move = max(bear_move, w_range)
+        if bull_move > MIN_RANGE and bear_move >= BEAR_SPIKE_RATIO * bull_move:
+            uncertainty += 2.0
+    else:
+        bear_move = df.iloc[0]["high"] - df["low"].min()
+        bull_move = 0
+        for i in range(len(df) - 2):
+            if _is_bull(df.iloc[i]) or _is_bull(df.iloc[i + 1]):
+                w_range = df.iloc[i:i + 3]["high"].max() - df.iloc[i:i + 3]["low"].min()
+                bull_move = max(bull_move, w_range)
+        if bear_move > MIN_RANGE and bull_move >= BEAR_SPIKE_RATIO * bear_move:
+            uncertainty += 2.0
+
+    # ── 5. Bars since last new high or low (up to +1) ──
+    running_high = df.iloc[0]["high"]
+    running_low = df.iloc[0]["low"]
+    bars_since_extreme = 0
+    for i in range(1, len(df)):
+        if df.iloc[i]["high"] > running_high or df.iloc[i]["low"] < running_low:
+            running_high = max(running_high, df.iloc[i]["high"])
+            running_low = min(running_low, df.iloc[i]["low"])
+            bars_since_extreme = 0
+        else:
+            bars_since_extreme += 1
+    if bars_since_extreme > BARS_STUCK_THRESHOLD:
+        uncertainty += 1.0
+
+    # ── 6. Price near midrange (up to +1) ──
+    day_high = df["high"].max()
+    day_low = df["low"].min()
+    day_range = day_high - day_low
+    if day_range > MIN_RANGE:
+        midpoint = (day_high + day_low) / 2
+        dist_from_mid = abs(df.iloc[-1]["close"] - midpoint) / day_range
+        if dist_from_mid < MIDPOINT_TOLERANCE:
+            uncertainty += 1.0
+
+    # ── 7. Always-in detection (-2 offset) ──
+    always_in = "unclear"
+    window = df.iloc[-min(len(df), STRONG_TREND_WINDOW):]
+
+    max_consec_bull = 0
+    consec = 0
+    for i in range(len(window)):
+        row = window.iloc[i]
+        if _is_bull(row) and _body_ratio(row) > STRONG_BODY_RATIO:
+            consec += 1
+            max_consec_bull = max(max_consec_bull, consec)
+        else:
+            consec = 0
+
+    max_consec_bear = 0
+    consec = 0
+    for i in range(len(window)):
+        row = window.iloc[i]
+        if _is_bear(row) and _body_ratio(row) > STRONG_BODY_RATIO:
+            consec += 1
+            max_consec_bear = max(max_consec_bear, consec)
+        else:
+            consec = 0
+
+    if max_consec_bull >= 2 and max_consec_bear < 2:
+        always_in = "long"
+        uncertainty -= 2.0
+    elif max_consec_bear >= 2 and max_consec_bull < 2:
+        always_in = "short"
+        uncertainty -= 2.0
+    else:
+        uncertainty += 2.0
+
+    # ── 8. Trend line broken (up to +2) ──
+    if gap_direction == "up":
+        swing_lows = _find_swing_lows(df)
+        if len(swing_lows) >= 2:
+            # Connect two most recent swing lows
+            (x1, y1), (x2, y2) = swing_lows[-2], swing_lows[-1]
+            if x2 > x1:
+                slope = (y2 - y1) / (x2 - x1)
+                projected = y2 + slope * (len(df) - 1 - x2)
+                if df.iloc[-1]["close"] < projected:
+                    uncertainty += 2.0
+    else:
+        swing_highs = _find_swing_highs(df)
+        if len(swing_highs) >= 2:
+            (x1, y1), (x2, y2) = swing_highs[-2], swing_highs[-1]
+            if x2 > x1:
+                slope = (y2 - y1) / (x2 - x1)
+                projected = y2 + slope * (len(df) - 1 - x2)
+                if df.iloc[-1]["close"] > projected:
+                    uncertainty += 2.0
+
+    # ── 9. Reversal count (up to +2) ──
+    # Count alternating swing highs and swing lows
+    swing_lows = _find_swing_lows(recent)
+    swing_highs = _find_swing_highs(recent)
+    # Merge and sort all swings by index
+    all_swings = [(idx, "L") for idx, _ in swing_lows] + [(idx, "H") for idx, _ in swing_highs]
+    all_swings.sort(key=lambda x: x[0])
+    reversals = 0
+    for i in range(1, len(all_swings)):
+        if all_swings[i][1] != all_swings[i - 1][1]:
+            reversals += 1
+    if reversals >= REVERSAL_HIGH:
+        uncertainty += 2.0
+    elif reversals >= REVERSAL_MODERATE:
+        uncertainty += 1.0
+
+    # ── 10. Largest bar is counter-trend (up to +1) ──
+    if len(recent) > 0:
+        ranges = [(recent.iloc[i]["high"] - recent.iloc[i]["low"], i) for i in range(len(recent))]
+        largest_idx = max(ranges, key=lambda x: x[0])[1]
+        largest_bar = recent.iloc[largest_idx]
+        if gap_direction == "up" and _is_bear(largest_bar):
+            uncertainty += 1.0
+        elif gap_direction == "down" and _is_bull(largest_bar):
+            uncertainty += 1.0
+
+    # ── 11. Tight trading range (up to +2) ──
+    max_tight_run = 0
+    current_run = 1
+    for i in range(1, len(df)):
+        prev_h, curr_h = df.iloc[i - 1]["high"], df.iloc[i]["high"]
+        prev_l, curr_l = df.iloc[i - 1]["low"], df.iloc[i]["low"]
+        avg_price = (prev_h + curr_h + prev_l + curr_l) / 4
+        if avg_price > MIN_RANGE:
+            h_diff = abs(curr_h - prev_h) / avg_price
+            l_diff = abs(curr_l - prev_l) / avg_price
+            if h_diff <= TIGHT_RANGE_PCT and l_diff <= TIGHT_RANGE_PCT:
+                current_run += 1
+            else:
+                max_tight_run = max(max_tight_run, current_run)
+                current_run = 1
+    max_tight_run = max(max_tight_run, current_run)
+
+    if max_tight_run >= TIGHT_RANGE_BARS_STRONG:
+        uncertainty += 2.0
+    elif max_tight_run >= TIGHT_RANGE_BARS_MODERATE:
+        uncertainty += 1.0
+
+    # ── 12. Two closes on wrong side of MA (+1) ──
+    if len(df) >= EMA_PERIOD + 2:
+        closes = df["close"].values.astype(float)
+        ema = _compute_ema(closes, EMA_PERIOD)
+        last_close = closes[-1]
+        prev_close = closes[-2]
+        last_ema = ema[-1]
+        prev_ema = ema[-2]
+
+        if gap_direction == "up":
+            if last_close < last_ema and prev_close < prev_ema:
+                uncertainty += 1.0
+        else:
+            if last_close > last_ema and prev_close > prev_ema:
+                uncertainty += 1.0
+
+    return max(uncertainty, 0.0), always_in
