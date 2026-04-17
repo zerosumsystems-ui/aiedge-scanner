@@ -202,7 +202,35 @@ from aiedge.features.candles import body, is_bull, is_bear
 
 ### Phase 4 — Carve live_scanner.py
 
-Map:
+Progress as of 2026-04-17:
+- [x] Phase 4a: `fetch_prior_closes`, `backfill_intraday_bars`, `_fetch_ohlcv1m_range`
+      + `_prev_trading_days`, `with_timeout`, `_timeout_handler` + `DATASET`,
+      `ET`, `SCHEMA` → `aiedge/data/databento.py`
+      (`backfill_intraday_bars` refactored to take bars/instrument_map +
+       their locks as explicit parameters — no more reliance on live_scanner
+       globals)
+- [ ] Phase 4b: `fetch_intraday_key_levels` → `aiedge/data/levels.py`
+- [ ] Phase 4c: `resample_to_5min` (live-variant) → `aiedge/data/resample.py`
+- [ ] Phase 4d: `render_chart_base64` → `aiedge/dashboard/charts.py`
+- [ ] Phase 4e: post-processing (`_dedup_etf_families`, `_compute_movement`,
+      `_fmt_movement`, `_fmt_delta`, `annotate_adr_multiple`) → `aiedge/signals/postprocess.py`
+- [ ] Phase 4f: pattern-lab logging (`_log_pattern_lab_detections`,
+      `_update_pattern_lab_outcomes`) → `aiedge/storage/pattern_lab.py`
+- [ ] Phase 4g: dashboard HTML (`_build_*_html`, `_bar_html`, `_signal_badge`,
+      `_movement_html`, `_format_note_text`, `_generate_dashboard`,
+      `print_leaderboard`) → `aiedge/dashboard/{html_cards,render}.py`
+- [ ] Phase 4h: serializers (`_serialize_bars`, `_serialize_key_levels`,
+      `_serialize_scan_payload`) → `aiedge/dashboard/serializers.py`
+- [ ] Phase 4i: api client + notifiers (`_post_to_aiedge`, `update_apple_note`,
+      `fire_alert`) → `aiedge/dashboard/{api_client,notifiers}.py`
+- [ ] Phase 4j: runners (`scan_thread_func`, `stream_thread_func`,
+      `save_final_results`, `save_session_data`, `_replay_session`, `main`,
+      `run_scan`) → `aiedge/runners/live.py`
+
+live_scanner.py: 2,972 → 2,669 LOC (303 removed so far, 10.2%).
+Tests: 189 passing across features/ + context/ + signals/ + risk/ + data/.
+
+### Phase 4 (original map)
 
 | Current function | New location |
 |---|---|
