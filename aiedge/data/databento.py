@@ -159,6 +159,133 @@ def fetch_prior_closes(api_key: str) -> tuple[dict[str, float], dict[str, float]
         return {}, {}
 
 
+# ── Daily-closes fetch (N days of history per ticker) ───────────────
+
+def fetch_daily_closes(
+    tickers: list[str],
+    days: int = 60,
+    api_key: str | None = None,
+) -> dict[str, list[float]]:
+    """Fetch N days of daily closes for the given tickers.
+
+    Returns `{ticker: [close_1, close_2, ..., close_N]}` where the list is
+    sorted chronologically with the most recent close LAST. Tickers with no
+    data are omitted from the result dict.
+
+    Parameters
+    ----------
+    tickers : list[str]
+        Raw symbols (e.g. ["SPY", "QQQ", "AAPL"]).
+    days : int
+        Number of calendar days of history to request (~2/3 map to trading
+        days). Default 60 calendar ≈ 40 trading days — enough for a 50-day
+        EMA used by `aiedge.context.htf.classify_htf_alignment`.
+    api_key : str | None
+        Databento API key. If None, read from the `DATABENTO_API_KEY` env
+        var (same fallback as the other fetchers in this module).
+
+    Does NOT hit the Live stream — single Historical REST query pulling
+    `ohlcv-1d` for the full ticker list at once, then a follow-up
+    symbology.resolve() to map instrument_id → raw_symbol. Style mirrors
+    `fetch_prior_closes` above.
+    """
+    if not tickers:
+        return {}
+
+    if api_key is None:
+        import os
+        api_key = os.environ.get("DATABENTO_API_KEY")
+    if not api_key:
+        logger.warning("fetch_daily_closes: no API key available — returning empty.")
+        return {}
+
+    logger.info(
+        f"Fetching {days}-day daily closes for {len(tickers):,} tickers via Databento Historical…"
+    )
+    hist = db.Historical(key=api_key)
+
+    yesterday = _prev_trading_days(1)
+    start_date = yesterday - timedelta(days=days)
+    end_date = yesterday + timedelta(days=1)   # exclusive end
+
+    # De-dup while preserving caller order
+    seen: set[str] = set()
+    unique_tickers: list[str] = []
+    for t in tickers:
+        if t and t not in seen:
+            seen.add(t)
+            unique_tickers.append(t)
+
+    try:
+        store = hist.timeseries.get_range(
+            dataset=DATASET,
+            schema="ohlcv-1d",
+            symbols=unique_tickers,
+            stype_in="raw_symbol",
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+        )
+        df = store.to_df()
+
+        if df.empty:
+            logger.warning("fetch_daily_closes: query returned no rows.")
+            return {}
+
+        df = df[df["close"] > 0]
+
+        # Resolve instrument_id → raw_symbol for this window
+        sym_result = hist.symbology.resolve(
+            dataset=DATASET,
+            symbols=unique_tickers,
+            stype_in="raw_symbol",
+            stype_out="instrument_id",
+            start_date=start_date,
+            end_date=end_date,
+        )
+        # sym_result maps raw_symbol → [{"d0":..., "d1":..., "s": instrument_id_str}]
+        sym_to_iid: dict[str, int] = {}
+        for sym, entries in sym_result.get("result", {}).items():
+            if entries:
+                iid_str = entries[-1].get("s")
+                if iid_str is not None:
+                    try:
+                        sym_to_iid[sym] = int(iid_str)
+                    except (TypeError, ValueError):
+                        continue
+
+        # Invert for lookup by instrument_id
+        iid_to_sym = {iid: sym for sym, iid in sym_to_iid.items()}
+
+        # Sort chronologically via the timestamp index, then groupby per iid
+        if df.index.name in (None, "ts_event"):
+            df = df.reset_index().rename(
+                columns={df.index.name or "index": "ts_event"}
+            )
+        if "ts_event" not in df.columns:
+            df["ts_event"] = df.index
+
+        df = df.sort_values(["instrument_id", "ts_event"])
+
+        out: dict[str, list[float]] = {}
+        for iid, grp in df.groupby("instrument_id", sort=False):
+            sym = iid_to_sym.get(int(iid))
+            if not sym:
+                continue
+            closes = [float(c) for c in grp["close"].tolist()]
+            if closes:
+                out[sym] = closes
+
+        logger.info(
+            f"fetch_daily_closes: got closes for {len(out):,}/{len(unique_tickers):,} tickers "
+            f"(avg {sum(len(v) for v in out.values()) / max(len(out), 1):.1f} bars each)."
+        )
+        return out
+
+    except Exception as e:
+        logger.error(f"fetch_daily_closes failed: {e}", exc_info=True)
+        return {}
+
+
 # ── 1-min range fetcher (used by backfill + levels) ──────────────────
 
 def _fetch_ohlcv1m_range(api_key: str, start_et: datetime, end_et: datetime,
