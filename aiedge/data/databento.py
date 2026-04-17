@@ -21,12 +21,12 @@ import databento as db
 import pandas as pd
 import pytz
 
-from aiedge.data.resample import SCAN_BAR_SCHEMA
+from aiedge.data.resample import ET, SCAN_BAR_SCHEMA
 
 logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────
-ET = pytz.timezone("America/New_York")
+# ET is shared with aiedge.data.resample to avoid a circular import.
 DATASET = "EQUS.MINI"
 SCHEMA = SCAN_BAR_SCHEMA       # "ohlcv-1m"
 

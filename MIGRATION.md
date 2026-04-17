@@ -210,7 +210,10 @@ Progress as of 2026-04-17:
        their locks as explicit parameters — no more reliance on live_scanner
        globals)
 - [x] Phase 4b: `fetch_intraday_key_levels` → `aiedge/data/levels.py`
-- [ ] Phase 4c: `resample_to_5min` (live-variant) → `aiedge/data/resample.py`
+- [x] Phase 4c: `resample_to_5min` (live-variant, forward-fill + partial-bar
+      drop) → `aiedge/data/resample.py` (alongside the existing
+      `_resample_to_5min` simple helper). `ET` also moved to resample.py to
+      avoid a circular import with databento.py.
 - [ ] Phase 4d: `render_chart_base64` → `aiedge/dashboard/charts.py`
 - [ ] Phase 4e: post-processing (`_dedup_etf_families`, `_compute_movement`,
       `_fmt_movement`, `_fmt_delta`, `annotate_adr_multiple`) → `aiedge/signals/postprocess.py`
@@ -227,8 +230,8 @@ Progress as of 2026-04-17:
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 2,567 LOC (405 removed so far, 13.6%).
-Tests: 189 passing across features/ + context/ + signals/ + risk/ + data/.
+live_scanner.py: 2,972 → 2,519 LOC (453 removed so far, 15.2%).
+Tests: 194 passing across features/ + context/ + signals/ + risk/ + data/.
 
 ### Phase 4 (original map)
 
