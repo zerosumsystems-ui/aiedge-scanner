@@ -141,16 +141,20 @@ Progress as of 2026-04-17:
        for now — signals → context is allowed by layer rules, so components.py
        imports them from daytype. Phase 3h may promote them to `features/candles.py`.)
 - [x] Phase 3g: risk (`_compute_risk_reward`) → `aiedge/risk/trader_eq.py`
-- [ ] Phase 3h: signal aggregator (`_determine_signal`, `_generate_summary`,
-      `_score_bpa_patterns`) → `aiedge/signals/{aggregator,summary}.py`
+- [x] Phase 3h: signal aggregator + phase + BPA scorer + summary →
+      `aiedge/signals/{aggregator,bpa,summary}.py`
+      (`_detect_phase` and `_determine_signal` + signal decision thresholds
+       and intraday flip labels → `signals/aggregator.py`;
+       `_score_bpa_patterns` + BPA constants + bpa_detector import →
+       `signals/bpa.py`; `_generate_summary` → `signals/summary.py`.)
 - [ ] Phase 3i: data helpers (`_normalize_databento_df`, `_resample_to_5min`,
       `_get_default_universe`) → `aiedge/data/{normalize,resample,universe}.py`
 - [ ] Phase 3j: misc helpers (`_detect_phase`, `_opening_range` helper callers)
 
-brooks_score.py: 3,928 → 1,693 LOC (2,235 removed so far, 56.9%).
-Tests: 137 passing in features/ + context/ + signals/ (46 features +
-39 context + 52 signals) plus 1 pre-existing broken test unrelated
-to this work.
+brooks_score.py: 3,928 → 1,383 LOC (2,545 removed so far, 64.8%).
+Tests: 169 passing in features/ + context/ + signals/ + risk/
+(46 features + 39 context + 78 signals + 6 risk) plus 1 pre-existing
+broken test unrelated to this work.
 
 Each phase leaves brooks_score.py importing from the new modules so
 existing consumers (live_scanner.py, pattern_lab_api.py, tests) keep

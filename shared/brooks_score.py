@@ -20,13 +20,8 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# ── BPA detector integration (guarded — graceful fallback if module missing) ──
-try:
-    from shared.bpa_detector import detect_all as _bpa_detect_all
-    _BPA_AVAILABLE = True
-except ImportError:
-    _bpa_detect_all = None
-    _BPA_AVAILABLE = False
+# BPA detector integration (_bpa_detect_all, _BPA_AVAILABLE) and the
+# _score_bpa_patterns function now live in aiedge.signals.bpa.
 
 # =============================================================================
 # TUNABLE CONSTANTS — adjust these to calibrate scoring sensitivity
@@ -60,22 +55,16 @@ MAGNITUDE_CAP_9 = 0.7         # Min move/ATR for urgency > 9.0
 MAGNITUDE_CAP_10 = 1.0        # Min move/ATR for urgency > 9.5 (stacks with EMA rule)
 # CHOP_RATIO_THRESHOLD now lives in aiedge.context.daytype (re-imported below).
 
-# ── Signal decision thresholds ──
-URGENCY_HIGH = 7
-UNCERTAINTY_LOW = 3
-UNCERTAINTY_MED = 5
-UNCERTAINTY_HIGH = 5
-UNCERTAINTY_TRAP = 7
+# Signal decision thresholds (URGENCY_HIGH, UNCERTAINTY_LOW/MED/HIGH/TRAP),
+# phase constants (FAILED_GAP_MIN_FRAC_ADR), and intraday flip labels
+# (SIGNAL_SELL_INTRADAY, SIGNAL_BUY_INTRADAY) now live in
+# aiedge.signals.aggregator (re-imported below).
 
-# Phase detection
-# SPIKE_MIN_BARS now lives in aiedge.context.daytype (re-imported below).
+# BPA pattern integration constants (BPA_INTEGRATION_ENABLED, BPA_LONG_SETUP_TYPES,
+# BPA_SHORT_SETUP_TYPES, BPA_COUNTER_TYPES, BPA_MIN_CONFIDENCE, BPA_RECENCY_BARS,
+# BPA_MIN_DF_LEN) now live in aiedge.signals.bpa (re-imported below).
+
 TRADING_RANGE_OVERLAP_BARS = 10
-# Minimum |gap| / ADR to classify a day as a "gap event" (Brooks:
-# opening_gap_behavior.md §Special cases — "Small gap (<25% of ADR): not a
-# 'gap event.' Treat the first bar like any other opening bar"). Below this
-# threshold, the `failed_gap` phase is suppressed — intrabar noise on a sub-
-# threshold gap would otherwise misclassify normal opening bars as failed gaps.
-FAILED_GAP_MIN_FRAC_ADR = 0.25
 
 # MIN_RANGE and the candle helpers (_safe_range, _body, _body_ratio,
 # _is_bull, _is_bear, _lower_tail_pct, _upper_tail_pct, _close_position)
@@ -83,21 +72,7 @@ FAILED_GAP_MIN_FRAC_ADR = 0.25
 # callers in this file and for any external consumer that still does
 # `from shared.brooks_score import _body`.
 
-# ── Feature flags (backward compat) ──
 # GAP_INTEGRITY_POST_FILL_EVAL now lives in aiedge.signals.components (re-imported below).
-BPA_INTEGRATION_ENABLED = True        # False → disables BPA overlay + bear-flip detection
-
-# ── BPA pattern integration ──
-BPA_LONG_SETUP_TYPES = frozenset({"H1", "H2", "FL1", "FL2"})
-BPA_SHORT_SETUP_TYPES = frozenset({"L1", "L2"})
-BPA_COUNTER_TYPES = frozenset({"spike_channel", "failed_bo"})
-BPA_MIN_CONFIDENCE = 0.60
-BPA_RECENCY_BARS = 8        # only consider setups detected in last N bars of the DataFrame
-BPA_MIN_DF_LEN = 12          # minimum bars before running BPA detectors
-
-# ── Intraday flip signal labels ──
-SIGNAL_SELL_INTRADAY = "SELL_PULLBACK_INTRADAY"
-SIGNAL_BUY_INTRADAY = "BUY_PULLBACK_INTRADAY"
 
 
 # =============================================================================
@@ -158,6 +133,29 @@ from aiedge.context.daytype import (  # noqa: E402
     _compute_two_sided_ratio,
 )
 from aiedge.risk.trader_eq import _compute_risk_reward  # noqa: E402
+from aiedge.signals.aggregator import (  # noqa: E402
+    FAILED_GAP_MIN_FRAC_ADR,
+    SIGNAL_BUY_INTRADAY,
+    SIGNAL_SELL_INTRADAY,
+    UNCERTAINTY_HIGH,
+    UNCERTAINTY_LOW,
+    UNCERTAINTY_MED,
+    UNCERTAINTY_TRAP,
+    URGENCY_HIGH,
+    _detect_phase,
+    _determine_signal,
+)
+from aiedge.signals.bpa import (  # noqa: E402
+    BPA_COUNTER_TYPES,
+    BPA_INTEGRATION_ENABLED,
+    BPA_LONG_SETUP_TYPES,
+    BPA_MIN_CONFIDENCE,
+    BPA_MIN_DF_LEN,
+    BPA_RECENCY_BARS,
+    BPA_SHORT_SETUP_TYPES,
+    _score_bpa_patterns,
+)
+from aiedge.signals.summary import _generate_summary  # noqa: E402
 from aiedge.signals.components import (  # noqa: E402
     BARS_STUCK_THRESHOLD,
     BEAR_SPIKE_RATIO,
@@ -287,90 +285,6 @@ from aiedge.signals.components import (  # noqa: E402
 # BPA PATTERN ADAPTER
 # =============================================================================
 
-def _score_bpa_patterns(
-    df: pd.DataFrame,
-    gap_direction: str,
-    gap_fill_status: str,
-) -> tuple[float, list[dict]]:
-    """Run bpa_detector on df and score how well detected patterns align with direction.
-
-    Returns (bpa_alignment_score, bpa_active_setups):
-      +2.0  H2/L2 in-direction (highest-confidence pullback)
-      +1.5  H1/L1 in-direction
-      +1.0  FL1/FL2 after gap fill recovery (reversal confirmation)
-      +0.5  failed_bo or spike_channel in-direction
-       0.0  no recent in-direction setup
-      -1.0  strong opposing setup (L2 on gap-up, H2 on gap-down)
-
-    The bpa_active_setups list carries serialized setup dicts for details/dashboard.
-    """
-    if not BPA_INTEGRATION_ENABLED or not _BPA_AVAILABLE or _bpa_detect_all is None:
-        return 0.0, []
-    if len(df) < BPA_MIN_DF_LEN:
-        return 0.0, []
-
-    try:
-        raw_setups = _bpa_detect_all(df)
-    except Exception:
-        logger.warning("bpa_detector.detect_all raised — skipping BPA scoring")
-        return 0.0, []
-
-    if not raw_setups:
-        return 0.0, []
-
-    # Filter by recency and confidence
-    last_bar = len(df) - 1
-    filtered = [
-        s for s in raw_setups
-        if s.confidence >= BPA_MIN_CONFIDENCE
-        and s.bar_index >= last_bar - BPA_RECENCY_BARS
-    ]
-    if not filtered:
-        return 0.0, []
-
-    # Determine which types are "in-direction" vs "opposing"
-    if gap_direction == "up":
-        in_dir_types = BPA_LONG_SETUP_TYPES
-        opp_types = BPA_SHORT_SETUP_TYPES
-    else:
-        in_dir_types = BPA_SHORT_SETUP_TYPES
-        opp_types = BPA_LONG_SETUP_TYPES
-
-    best_score = 0.0
-    for s in filtered:
-        st = s.setup_type
-        if st in in_dir_types:
-            if st in ("H2", "L2"):
-                best_score = max(best_score, 2.0)
-            elif st in ("H1", "L1"):
-                best_score = max(best_score, 1.5)
-            elif st in ("FL1", "FL2") and gap_fill_status == "filled_recovered":
-                best_score = max(best_score, 1.0)
-            elif st in ("FL1", "FL2"):
-                best_score = max(best_score, 0.5)
-        elif st in BPA_COUNTER_TYPES:
-            best_score = max(best_score, 0.5)
-        elif st in opp_types:
-            if st in ("H2", "L2"):
-                best_score = min(best_score, -1.0)
-            else:
-                best_score = min(best_score, -0.5)
-
-    # Serialize for details dict
-    active = [
-        {
-            "type": s.setup_type,
-            "entry": s.entry,
-            "stop": s.stop,
-            "target": s.target,
-            "confidence": round(s.confidence, 2),
-            "bar_index": s.bar_index,
-            "entry_mode": s.entry_mode,
-        }
-        for s in filtered[:3]
-    ]
-
-    return round(best_score, 2), active
 
 
 # =============================================================================
@@ -413,189 +327,12 @@ def _score_bpa_patterns(
 # PHASE, RISK/REWARD, SIGNAL, SUMMARY
 # =============================================================================
 
-def _detect_phase(df: pd.DataFrame, spike_bars: int, uncertainty: float,
-                  gap_direction: str, gap_held: bool,
-                  abs_gap_frac_adr: float = 0.0) -> str:
-    """Determine the current market phase.
-
-    abs_gap_frac_adr: |gap_size| / ADR. Used to gate `failed_gap`: Brooks
-    treats gaps < 25% of ADR as "not a gap event" (opening_gap_behavior.md
-    §Special cases). On a sub-threshold gap the `gap_held` flag is noise —
-    flipping between True/False on single-cent intrabar excursions — so we
-    suppress the `failed_gap` phase and fall through to normal classification.
-    """
-    if spike_bars >= SPIKE_MIN_BARS and len(df) <= spike_bars + 2:
-        return "spike"
-
-    if (not gap_held
-            and uncertainty > UNCERTAINTY_HIGH
-            and abs_gap_frac_adr >= FAILED_GAP_MIN_FRAC_ADR):
-        return "failed_gap"
-
-    if uncertainty > UNCERTAINTY_HIGH:
-        return "trading_range"
-
-    if spike_bars >= SPIKE_MIN_BARS and len(df) > spike_bars + 3:
-        post_spike = df.iloc[spike_bars:]
-        if gap_direction == "up":
-            lows = post_spike["low"].values
-            if len(lows) >= 3:
-                mid = len(lows) // 2
-                if np.mean(lows[mid:]) > np.mean(lows[:mid]):
-                    return "channel"
-        else:
-            highs = post_spike["high"].values
-            if len(highs) >= 3:
-                mid = len(highs) // 2
-                if np.mean(highs[mid:]) < np.mean(highs[:mid]):
-                    return "channel"
-
-    if spike_bars >= SPIKE_MIN_BARS:
-        return "channel"
-
-    return "trading_range"
 
 
 
 
-def _determine_signal(urgency: float, uncertainty: float, gap_held: bool,
-                      gap_direction: str, rr_ratio: float,
-                      spike_bars: int, pullback_exists: bool,
-                      bpa_alignment: float = 0.0,
-                      always_in: str = "unclear",
-                      gap_fill_status: str = "held") -> str:
-    """
-    Decision matrix for the final signal.
-    Urgency and uncertainty are ALREADY normalized to 0-10 at this point.
-
-    BPA overlay (Fix 1) and bear-flip detection (Fix 3) operate after the
-    core matrix, modifying the signal based on pattern confirmation.
-    """
-    # Failed gap override — but BPA can reconsider if gap recovered
-    if not gap_held:
-        if (BPA_INTEGRATION_ENABLED
-                and gap_fill_status == "filled_recovered"
-                and bpa_alignment >= 1.0):
-            # Gap filled but price recovered with BPA confirmation — not AVOID
-            signal = "WAIT"
-        else:
-            return "AVOID"
-    # Trap: high urgency AND high uncertainty — most dangerous state
-    elif urgency >= URGENCY_HIGH and uncertainty >= UNCERTAINTY_TRAP:
-        return "AVOID"
-    # Best setups: high urgency, low uncertainty
-    elif urgency >= URGENCY_HIGH and uncertainty <= UNCERTAINTY_LOW:
-        if not pullback_exists and spike_bars >= SPIKE_MIN_BARS:
-            signal = "BUY_SPIKE"
-        else:
-            signal = "BUY_PULLBACK"
-    # Promising: moderate-to-high urgency, moderate uncertainty
-    elif urgency >= URGENCY_HIGH and uncertainty <= UNCERTAINTY_MED:
-        signal = "BUY_PULLBACK"
-    # Wait: decent urgency but needs more bars
-    elif urgency >= 5 and uncertainty <= UNCERTAINTY_MED:
-        signal = "WAIT"
-    # Foggy: uncertainty too high regardless of urgency
-    elif uncertainty >= UNCERTAINTY_HIGH:
-        signal = "FOG"
-    # Readable but weak
-    elif urgency <= 3 and uncertainty <= UNCERTAINTY_LOW:
-        signal = "PASS"
-    else:
-        signal = "WAIT"
-
-    # Trader's equation adjustment
-    if rr_ratio < 1.0 and signal in ("BUY_PULLBACK", "BUY_SPIKE"):
-        signal = "WAIT"
-    elif rr_ratio < 1.0 and signal == "WAIT":
-        signal = "PASS"
-    elif rr_ratio > 2.0 and signal == "WAIT":
-        signal = "BUY_PULLBACK"
-    elif rr_ratio > 2.0 and signal == "PASS":
-        signal = "WAIT"
-
-    # Mirror labels for gap-down
-    if gap_direction == "down":
-        if signal == "BUY_PULLBACK":
-            signal = "SELL_PULLBACK"
-        elif signal == "BUY_SPIKE":
-            signal = "SELL_SPIKE"
-
-    # ── BPA overlay (Fix 1): upgrade/downgrade based on pattern confirmation ──
-    if BPA_INTEGRATION_ENABLED and bpa_alignment != 0.0:
-        # Strong in-direction pattern upgrades WAIT/PASS to actionable signal
-        if signal in ("WAIT", "PASS") and bpa_alignment >= 2.0:
-            signal = "BUY_PULLBACK" if gap_direction == "up" else "SELL_PULLBACK"
-        # Opposing pattern downgrades actionable BUY to WAIT
-        elif bpa_alignment <= -1.0 and signal in ("BUY_PULLBACK", "BUY_SPIKE"):
-            signal = "WAIT"
-
-    # ── Bear-flip detection (Fix 3): intraday direction reversal ──
-    if BPA_INTEGRATION_ENABLED:
-        # Gap-up day where always_in flipped short + L1/L2 BPA confirmation
-        if (gap_direction == "up"
-                and always_in == "short"
-                and uncertainty < UNCERTAINTY_TRAP
-                and bpa_alignment <= -1.0):
-            signal = SIGNAL_SELL_INTRADAY
-        # Symmetric: gap-down day where always_in flipped long + H1/H2 BPA
-        elif (gap_direction == "down"
-                and always_in == "long"
-                and uncertainty < UNCERTAINTY_TRAP
-                and bpa_alignment >= 1.5):
-            signal = SIGNAL_BUY_INTRADAY
-
-    return signal
 
 
-def _generate_summary(signal: str, urgency: float, uncertainty: float,
-                      phase: str, always_in: str, gap_direction: str,
-                      spike_bars: int, pullback_depth_pct: float,
-                      gap_held: bool = True,
-                      bpa_active_setups: list = None) -> str:
-    """One-sentence Brooks-style summary."""
-    direction = "bull" if gap_direction == "up" else "bear"
-    bpa_count = len(bpa_active_setups) if bpa_active_setups else 0
-
-    if signal == SIGNAL_SELL_INTRADAY:
-        return (f"Intraday bear flip — gap-up day reversed. Always-in: short. "
-                f"BPA {bpa_count} confirming setup(s). Urgency {urgency:.1f}.")
-
-    if signal == SIGNAL_BUY_INTRADAY:
-        return (f"Intraday bull flip on gap-down day. Always-in: long. "
-                f"BPA {bpa_count} confirming setup(s). Urgency {urgency:.1f}.")
-
-    if signal in ("BUY_PULLBACK", "SELL_PULLBACK"):
-        return (f"Strong {direction} gap with {spike_bars}-bar spike, "
-                f"shallow {pullback_depth_pct:.0%} pullback — "
-                f"always-in {always_in}, good trader's equation for {phase} entry.")
-
-    if signal in ("BUY_SPIKE", "SELL_SPIKE"):
-        return (f"Powerful {direction} spike ({spike_bars} consecutive trend bars), "
-                f"no pullback yet — market is leaving, consider market order with wide stop.")
-
-    if signal == "AVOID":
-        if urgency >= URGENCY_HIGH and uncertainty >= UNCERTAINTY_TRAP:
-            return (f"Trap — {direction} gap looks urgent (U={urgency:.1f}) "
-                    f"but chart is two-sided (uncertainty={uncertainty:.1f}), "
-                    f"both sides showing strength. Most dangerous state.")
-        if not gap_held:
-            return (f"Gap filled — {direction} gap failed to hold prior close. "
-                    f"Bears took control, no edge for longs.")
-        return f"Chart unreadable — uncertainty={uncertainty:.1f}, avoid."
-
-    if signal == "FOG":
-        return (f"Can't read the chart — overlapping bars, dojis, "
-                f"alternating colors (uncertainty={uncertainty:.1f}). Sit on hands.")
-
-    if signal == "WAIT":
-        return (f"Promising {direction} gap but need more bars — "
-                f"urgency only {urgency:.1f}, wait for clearer pullback or breakout.")
-
-    if signal == "PASS":
-        return f"Readable but weak — no urgency, no edge. Pass."
-
-    return f"Phase: {phase}, always-in: {always_in}. No clear setup."
 
 
 # =============================================================================
