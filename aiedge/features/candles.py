@@ -13,6 +13,10 @@ consumers — the underscore is historical, not semantic.
 # Historically lived in brooks_score.py; travels with the helpers now.
 MIN_RANGE = 0.001
 
+# Doji threshold: body < 30% of range = doji.
+# Used by phase classifier and uncertainty scoring.
+DOJI_BODY_RATIO = 0.30
+
 
 def _safe_range(row) -> float:
     """Bar range, floored to avoid division by zero."""
