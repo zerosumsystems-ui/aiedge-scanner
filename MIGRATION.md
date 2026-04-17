@@ -122,9 +122,34 @@ Note: `chart_generation.py` moved to content/ — it renders video-segment
 charts. Scanner chart rendering is done by `live_scanner.render_chart_base64`
 which stays in scanner and will move to `dashboard/` in Phase 4.
 
-### Phase 3 — Carve brooks_score.py (biggest)
+### Phase 3 — Carve brooks_score.py (IN PROGRESS)
 
-Map `shared/brooks_score.py` functions to new homes:
+Progress as of 2026-04-17:
+- [x] Phase 3a: candle helpers → `aiedge/features/candles.py` (commit 59efef0)
+- [x] Phase 3b: ema, swings, volatility, session → `aiedge/features/*.py` (commit 03f1f12)
+- [x] Phase 3c: cycle-phase classifier → `aiedge/context/phase.py` (commit 91ac1fe)
+- [x] Phase 3d: session-shape classifier → `aiedge/context/shape.py` (commit b8e02ef)
+- [ ] Phase 3e: day-type classifier → `aiedge/context/daytype.py`
+      (`_classify_day_type`, `_apply_day_type_weight`, `_compute_two_sided_ratio`,
+      DAY_TYPE_WEIGHTS matrix, ~600 LOC)
+- [ ] Phase 3f: signal components (17 `_score_*` functions) → `aiedge/signals/components.py`
+- [ ] Phase 3g: risk (`_compute_risk_reward`) → `aiedge/risk/trader_eq.py`
+- [ ] Phase 3h: signal aggregator (`_determine_signal`, `_generate_summary`,
+      `_score_bpa_patterns`) → `aiedge/signals/{aggregator,summary}.py`
+- [ ] Phase 3i: data helpers (`_normalize_databento_df`, `_resample_to_5min`,
+      `_get_default_universe`) → `aiedge/data/{normalize,resample,universe}.py`
+- [ ] Phase 3j: misc helpers (`_detect_phase`, `_opening_range` helper callers)
+
+brooks_score.py: 3,928 → 3,352 LOC (576 removed so far, 14.7%).
+Tests: 138 passing in features/ + context/ (plus 1 pre-existing broken
+test unrelated to this work).
+
+Each phase leaves brooks_score.py importing from the new modules so
+existing consumers (live_scanner.py, pattern_lab_api.py, tests) keep
+working unchanged. Every `from shared.brooks_score import X` still
+resolves; X just now lives in aiedge.* under the hood.
+
+Function map (remaining):
 
 | Current function | New location |
 |---|---|
