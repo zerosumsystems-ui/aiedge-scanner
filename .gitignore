@@ -23,9 +23,11 @@ venv/
 output/
 runs/
 logs/
+_logs/
 cache/
 _qc_out/
 chart_samples/
+bpa_backtest_report.html
 
 # --- Local DB / pickles / large data ---
 db/
