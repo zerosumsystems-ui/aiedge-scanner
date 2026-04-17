@@ -191,6 +191,9 @@ def _serialize_scan_payload(
             entry["fillStatus"] = fill_status
         if r.get("day_type_warning"):
             entry["warning"] = r["day_type_warning"]
+        htf = r.get("htf_alignment")
+        if htf and htf != "no_data":
+            entry["htfAlignment"] = htf
         if chart_obj:
             entry["chart"] = chart_obj
 

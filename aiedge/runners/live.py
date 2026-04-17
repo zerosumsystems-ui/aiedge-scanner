@@ -59,9 +59,11 @@ from aiedge.data.databento import (
     _prev_trading_days,
     _timeout_handler,
     backfill_intraday_bars as _backfill_intraday_bars_pure,
+    fetch_daily_closes,
     fetch_prior_closes,
     with_timeout,
 )
+from aiedge.context.htf import classify_htf_alignment
 from aiedge.data.levels import fetch_intraday_key_levels
 from aiedge.data.resample import resample_to_5min
 from aiedge.dashboard.api_client import (
@@ -173,6 +175,12 @@ _prior_scan: dict[str, dict] = {}       # {ticker: {rank, urgency, uncertainty}}
 # Intraday key-level cache (PDH/PDL/ONH/ONL/PMH/PML) — populated once at startup
 intraday_levels: dict[str, dict[str, float]] = {}   # {symbol: {"pdh":.., "pdl":.., "onh":.., "onl":.., "pmh":.., "pml":..}}
 
+# Daily-closes cache — populated lazily on first scan, reused across scans.
+# Used by HTF alignment (B4) and correlation dedup (B1 — added separately).
+# {ticker: [close_1, ..., close_N]} sorted chronologically (most recent last).
+daily_closes_cache: dict[str, list[float]] = {}
+_daily_closes_fetched: set[str] = set()   # tickers we've already attempted to fetch
+
 # ── ETF / dual-class family dedup: moved to aiedge.signals.postprocess
 # (Phase 4e). Re-imported at top of file — legacy names still resolve
 # on `ls.ETF_FAMILIES` etc.
@@ -184,6 +192,81 @@ def annotate_adr_multiple(score: dict, df_1m: pd.DataFrame, sym: str) -> None:
     `aiedge.signals.postprocess.annotate_adr_multiple` for the pure version.
     """
     _annotate_adr_multiple_pure(score, df_1m, sym, daily_atrs)
+
+
+# ── HTF alignment helpers (B4) ────────────────────────────────────────────────
+
+def _direction_from_signal(signal: str) -> "str | None":
+    """Map a scanner signal to setup_direction ("long" | "short"), or None
+    if the signal doesn't imply a directional bet (WAIT / FOG / AVOID / PASS).
+    """
+    if not signal:
+        return None
+    s = signal.upper()
+    if "BUY" in s:
+        return "long"
+    if "SELL" in s:
+        return "short"
+    return None
+
+
+def _ensure_daily_closes(tickers: list[str], api_key: "str | None" = None) -> None:
+    """Fetch daily closes for any tickers we haven't tried yet, and merge into
+    the session-level `daily_closes_cache`. Idempotent per ticker — a second
+    call with an overlapping ticker list does nothing extra for the overlap.
+    """
+    if api_key is None:
+        api_key = os.environ.get("DATABENTO_API_KEY")
+    if not api_key:
+        return
+
+    missing = [t for t in tickers if t and t not in _daily_closes_fetched]
+    if not missing:
+        return
+
+    fetched = fetch_daily_closes(missing, days=60, api_key=api_key)
+    for t in missing:
+        _daily_closes_fetched.add(t)
+        if t in fetched:
+            daily_closes_cache[t] = fetched[t]
+
+
+def _weekly_closes_from_daily(daily: list[float], step: int = 5) -> list[float]:
+    """Coarse weekly approximation: every 5th daily close, most recent last.
+
+    Not calendar-aligned to Friday closes, but good enough for the
+    fast/slow-EMA bias signal used by `classify_htf_alignment`.
+    """
+    if not daily:
+        return []
+    # Walk backwards from the last close so the most recent point is preserved.
+    reversed_weekly = list(reversed(daily[::-1][::step]))
+    return reversed_weekly
+
+
+def _annotate_htf_alignment(results: list[dict]) -> None:
+    """Mutate each result in `results` to add an `htf_alignment` field.
+
+    Value is one of: "aligned" | "mixed" | "opposed" | "no_data".
+    Uses `daily_closes_cache` — caller is responsible for priming it via
+    `_ensure_daily_closes` before this runs.
+    """
+    for r in results:
+        ticker = r.get("ticker", "")
+        setup_dir = _direction_from_signal(r.get("signal", ""))
+        daily = daily_closes_cache.get(ticker)
+        if not setup_dir or not daily:
+            r["htf_alignment"] = "no_data"
+            continue
+        weekly = _weekly_closes_from_daily(daily)
+        try:
+            out = classify_htf_alignment(daily, weekly, setup_dir)
+            r["htf_alignment"] = out.get("alignment", "no_data")
+        except Exception as e:
+            logger.debug(f"HTF alignment error for {ticker}: {e}")
+            r["htf_alignment"] = "no_data"
+
+
 
 # ── Prior Closes ──────────────────────────────────────────────────────────────
 
@@ -377,6 +460,19 @@ def run_scan(args) -> list[dict]:
     results.sort(key=lambda x: -x.get("urgency", 0))
     # Collapse ETF family repeats (QQQ/TQQQ/SQQQ all on same NDX move → keep one leader)
     results = _dedup_etf_families(results)
+
+    # ── B4: HTF alignment annotation (populates daily-closes cache) ────
+    _surviving_tickers = [r.get("ticker") for r in results if r.get("ticker")]
+    try:
+        _ensure_daily_closes(_surviving_tickers)
+    except Exception as e:
+        logger.debug(f"Daily-closes fetch skipped: {e}")
+
+    try:
+        _annotate_htf_alignment(results)
+    except Exception as e:
+        logger.debug(f"HTF annotation skipped: {e}")
+
     results = _compute_movement(results, _prior_scan)
 
     elapsed_score = time.monotonic() - t0

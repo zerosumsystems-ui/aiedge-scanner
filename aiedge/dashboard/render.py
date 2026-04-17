@@ -555,6 +555,51 @@ def _build_card_html(r: dict, chart_b64: str | None) -> str:
     else:
         fam_badge = ""
 
+    # HTF-alignment chip (B4) — right next to the family badge. Hidden on
+    # "no_data" so cards without enough daily history stay clean. Arrows
+    # match the setup direction so a short in a downtrend reads ↓D ↓W.
+    htf = r.get("htf_alignment", "no_data")
+    sig_upper = (sig or "").upper()
+    is_short = "SELL" in sig_upper
+    arrow = "↓" if is_short else "↑"
+    htf_badge = ""
+    if htf == "aligned":
+        htf_badge = (
+            f'<span class="htf-chip htf-aligned" '
+            f'title="Higher-timeframe aligned — daily + weekly bias match the setup direction." '
+            f'style="display:inline-block;margin-left:6px;padding:1px 6px;'
+            f'font-size:10px;font-weight:600;letter-spacing:0.3px;'
+            f'background:rgba(0,200,150,.12);color:#00c896;'
+            f'border:1px solid rgba(0,200,150,.35);'
+            f'border-radius:10px;vertical-align:middle;">'
+            f'{arrow}D&nbsp;{arrow}W'
+            f'</span>'
+        )
+    elif htf == "mixed":
+        htf_badge = (
+            f'<span class="htf-chip htf-mixed" '
+            f'title="Higher-timeframe mixed — one of daily/weekly aligns, the other is neutral or opposed." '
+            f'style="display:inline-block;margin-left:6px;padding:1px 6px;'
+            f'font-size:10px;font-weight:600;letter-spacing:0.3px;'
+            f'background:rgba(245,200,66,.12);color:#f5c842;'
+            f'border:1px solid rgba(245,200,66,.30);'
+            f'border-radius:10px;vertical-align:middle;">'
+            f'&#x2195;'
+            f'</span>'
+        )
+    elif htf == "opposed":
+        htf_badge = (
+            f'<span class="htf-chip htf-opposed" '
+            f'title="Higher-timeframe opposed — both daily + weekly bias oppose the setup direction." '
+            f'style="display:inline-block;margin-left:6px;padding:1px 6px;'
+            f'font-size:10px;font-weight:600;letter-spacing:0.3px;'
+            f'background:rgba(224,85,85,.12);color:#e05555;'
+            f'border:1px solid rgba(224,85,85,.35);'
+            f'border-radius:10px;vertical-align:middle;">'
+            f'\u2717'
+            f'</span>'
+        )
+
     # Cycle-phase badge (Layer 1 classifier) — shown inline with day_type
     details_r = r.get("details") or {}
     cp = details_r.get("cycle_phase") or {}
@@ -590,7 +635,7 @@ def _build_card_html(r: dict, chart_b64: str | None) -> str:
 
     ticker_html = (
         f'<div class="ticker-block">'
-        f'<div class="ticker">{ticker}{fam_badge}</div>'
+        f'<div class="ticker">{ticker}{fam_badge}{htf_badge}</div>'
         f'<div class="day-type">{day_type} {cp_html} {fill_badge}</div>'
         f'</div>'
     )

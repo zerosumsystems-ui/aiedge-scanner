@@ -21,6 +21,7 @@ from aiedge.data.databento import (
     ET,
     SCHEMA,
     _prev_trading_days,
+    fetch_daily_closes,
     with_timeout,
 )
 
@@ -79,6 +80,24 @@ class ConstantsTests(unittest.TestCase):
 
     def test_et_timezone(self):
         self.assertEqual(str(ET), "America/New_York")
+
+
+class FetchDailyClosesTests(unittest.TestCase):
+    """fetch_daily_closes hits Databento Historical, but we can exercise the
+    empty-input and missing-key short-circuits without network access."""
+
+    def test_empty_tickers_returns_empty_dict(self):
+        self.assertEqual(fetch_daily_closes([], days=60, api_key="anything"), {})
+
+    def test_missing_api_key_returns_empty_dict(self):
+        # Force both the arg and the env var off so we hit the "no API key" branch.
+        import os
+        saved = os.environ.pop("DATABENTO_API_KEY", None)
+        try:
+            self.assertEqual(fetch_daily_closes(["AAPL"], days=10, api_key=None), {})
+        finally:
+            if saved is not None:
+                os.environ["DATABENTO_API_KEY"] = saved
 
 
 if __name__ == "__main__":
