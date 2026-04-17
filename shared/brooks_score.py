@@ -58,8 +58,6 @@ OR_TREND_FROM_OPEN = 0.25      # OR < 25% of avg range = trend from open
 
 # ── Day Type Classifier ──
 # WARMUP_BARS now lives in aiedge.context.daytype (re-imported below).
-TREND_BAR_PCT = 0.70           # > 70% trend bars in one direction = trend from open
-TREND_MAX_PULLBACK = 0.25      # no pullback > 25% of move = trend day
 
 # ── Magnitude filter ──
 MAGNITUDE_FLOOR = 0.5         # Min move/ATR to appear on leaderboard
