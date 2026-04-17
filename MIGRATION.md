@@ -283,12 +283,52 @@ still runs main() (which lives in aiedge.runners.live).
 | `update_apple_note`, `fire_alert` | `dashboard/notifiers.py` |
 | `scan_thread_func`, `stream_thread_func`, `save_final_results`, `save_session_data`, `_replay_session`, `main`, `run_scan` | `runners/live.py` |
 
-### Phase 5 — Wire BPA detector as primary
+### Phase 5 — Wire BPA detector as primary (complete 2026-04-17)
 
-- `signals/aggregator.py` takes `bpa_detector` hits as primary input.
-- Component scores from `signals/components.py` become filters/modifiers.
-- `risk/trader_eq.py` computes edge from (setup, prior, R:R).
-- Delete `_score_bpa_patterns` — it was the post-hoc hack.
+Implemented as a **parallel code path** behind a feature flag rather
+than a hard replacement of `_score_bpa_patterns`. Reason: `_determine_signal`
+and the live scanner's dashboard + pattern lab all consume today's
+`bpa_alignment` score. Hot-swapping the aggregator mid-live-session
+risks a production-output regression we can't easily A/B against
+historical scans. The new path goes live once priors_store has enough
+data to populate `(setup, regime, htf_alignment, day_type)` strata.
+
+New module: `aiedge/signals/bpa_primary.py`
+
+Pipeline:
+
+    bpa_detector.detect_all(df)
+        → filter confidence >= 0.60, bar_index within last 8 bars
+        → for each surviving setup:
+            - regime = features.regime.realized_vol_tercile(daily_closes)
+            - htf_alignment = context.htf.classify_htf_alignment(
+                                daily, weekly, direction)
+            - prior = risk.priors.p_win(store, setup_type, regime,
+                                         htf_alignment, day_type,
+                                         min_samples=30)
+            - edge = p_win * reward - (1 - p_win) * risk
+        → keep positive-edge candidates (or all, if no priors data)
+        → sort by edge desc
+        → return as SetupCandidate dataclass list
+
+Feature flags:
+- `BPA_PRIMARY_ENABLED` (default False) — global kill-switch
+- `BPA_PRIMARY_MIN_SAMPLES = 30` — rank fall-through threshold
+
+`_score_bpa_patterns` is NOT deleted — it still powers the current
+live scanner's BPA overlay. Once the new aggregator is validated
+against historical backtest output (compare candidate lists day-over-
+day), the flag flips to True and the legacy path can be retired.
+
+Tests: `tests/signals/test_bpa_primary.py` (11 tests) covering:
+- disabled / detector-unavailable / short-df short-circuits
+- confidence + recency filtering
+- R:R-based ranking when no priors data
+- prior-aware ranking + negative-edge rejection when data is present
+- direction inference from setup type (H2→long, L2→short)
+- candidates_to_dicts serialization
+
+Test suite after Phase 5: **451 passed**.
 
 ### Phase 6 — New capabilities (complete 2026-04-17)
 
