@@ -1222,6 +1222,7 @@ def _score_bpa_patterns(
             "target": s.target,
             "confidence": round(s.confidence, 2),
             "bar_index": s.bar_index,
+            "entry_mode": s.entry_mode,
         }
         for s in filtered[:3]
     ]

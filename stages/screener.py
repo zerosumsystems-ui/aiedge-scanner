@@ -514,7 +514,8 @@ def _run_top_gainers(client: DatabentClient, screener_config: dict) -> dict:
                     setups = detect_all(sym_df)
                     bpa_setups = [
                         {"type": s.setup_type, "entry": s.entry, "stop": s.stop,
-                         "target": s.target, "confidence": s.confidence}
+                         "target": s.target, "confidence": s.confidence,
+                         "entry_mode": s.entry_mode}
                         for s in setups[:3]
                     ]
                 except Exception:

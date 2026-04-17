@@ -527,8 +527,14 @@ def annotate_adr_multiple(score: dict, df_1m: pd.DataFrame, sym: str) -> None:
     score["adr_multiple"] = round(adr_mult, 2)
 
 
-def resample_to_5min(df: pd.DataFrame) -> pd.DataFrame:
-    """Resample a 1-min OHLCV DataFrame to 5-min bars."""
+def resample_to_5min(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
+    """
+    Resample a 1-min OHLCV DataFrame to 5-min bars.
+
+    Drops the most recent 5-min bar if it is still forming (its [start, start+5m)
+    window hasn't closed yet). This prevents partial-bar leakage into scoring.
+    Pass `now` to test at a specific wall-clock time; defaults to real now.
+    """
     df = df.copy()
     if not pd.api.types.is_datetime64_any_dtype(df["datetime"]):
         df["datetime"] = pd.to_datetime(df["datetime"])
@@ -547,16 +553,28 @@ def resample_to_5min(df: pd.DataFrame) -> pd.DataFrame:
             volume=("volume", "sum"),
         )
     )
-    # Forward-fill NaN rows that result from gaps in intraday 1-min feed
-    # (e.g., gaps during very low volume periods like 12:25-12:40).
-    # ffill preserves the last known OHLC for gaps < ~1hr, visual continuity on charts.
     df5["open"] = df5["open"].ffill()
     df5["high"] = df5["high"].ffill()
     df5["low"] = df5["low"].ffill()
     df5["close"] = df5["close"].ffill()
-    df5["volume"] = df5["volume"].fillna(0)  # NaN volume → 0 (no trades)
+    df5["volume"] = df5["volume"].fillna(0)
     df5 = df5.dropna(subset=["open", "close"])
     df5 = df5[df5["open"] > 0]
+
+    # Defensive: if the last bar's 5-min window hasn't closed yet, drop it.
+    # A bar labeled 09:40 covers [09:40, 09:45). At any wall-clock time before
+    # 09:45 that bar is still forming and must not feed scoring.
+    if len(df5) > 0:
+        wall_raw = now if now is not None else datetime.now(ET)
+        wall = pd.Timestamp(wall_raw)
+        if wall.tz is None:
+            wall = wall.tz_localize(ET)
+        else:
+            wall = wall.tz_convert(ET)
+        last_bar_end = df5.index[-1] + pd.Timedelta(minutes=5)
+        if wall < last_bar_end:
+            df5 = df5.iloc[:-1]
+
     return df5.reset_index().rename(columns={"datetime": "datetime"})
 
 # ── Chart Rendering ───────────────────────────────────────────────────────────
@@ -871,13 +889,14 @@ _PATTERN_LAB_OK = True  # flipped to False on first import failure
 def _log_pattern_lab_detections(
     ticker: str, score: dict, bpa_setups: list[dict],
     df5: "pd.DataFrame", scan_time: "datetime",
+    prior_close: "float | None" = None,
 ) -> None:
     """Log BPA detections to the Pattern Lab database."""
     global _PATTERN_LAB_OK
     if not _PATTERN_LAB_OK:
         return
     try:
-        from shared.pattern_lab import log_detection
+        from shared.pattern_lab import log_detection, build_chart_json
     except ImportError:
         _PATTERN_LAB_OK = False
         return
@@ -896,7 +915,7 @@ def _log_pattern_lab_detections(
         # Derive direction from setup type
         if setup_type in ("H1", "H2", "FL1", "FL2"):
             direction = "long"
-        elif setup_type in ("L1", "L2"):
+        elif setup_type in ("L1", "L2", "FH1", "FH2"):
             direction = "short"
         else:
             entry, stop = setup.get("entry"), setup.get("stop")
@@ -912,6 +931,21 @@ def _log_pattern_lab_detections(
         elif len(df5) > 0:
             price_at = float(df5.iloc[-1]["close"])
 
+        # Chart window ±30/+20 around signal. At live scan time we only have
+        # bars up to 'now', so window_after naturally truncates — later scans
+        # will see a longer window if the same detection re-fires (it won't
+        # re-insert due to dedup, which is fine).
+        chart_json = build_chart_json(
+            df5_full=df5,
+            bar_index=bar_idx,
+            entry=setup.get("entry"),
+            stop=setup.get("stop"),
+            target=setup.get("target"),
+            direction=direction,
+            prior_close=prior_close,
+            cycle_phase=cycle_phase_top,
+        )
+
         log_detection(
             ticker=ticker,
             setup_type=setup_type,
@@ -923,6 +957,7 @@ def _log_pattern_lab_detections(
             entry_price=setup.get("entry"),
             stop_price=setup.get("stop"),
             target_price=setup.get("target"),
+            entry_mode=setup.get("entry_mode"),
             confidence=setup.get("confidence", 0.0),
             direction=direction,
             price_at_detect=price_at or 0.0,
@@ -934,6 +969,7 @@ def _log_pattern_lab_detections(
             signal=score.get("signal"),
             gap_direction="up" if score.get("gap_held") else score.get("details", {}).get("gap_direction"),
             bpa_alignment=score.get("details", {}).get("bpa_alignment"),
+            chart_json=chart_json,
         )
 
 
@@ -1145,7 +1181,9 @@ def run_scan(args) -> list[dict]:
             # Pattern Lab: log any BPA detections for this symbol
             _bpa_setups = score.get("details", {}).get("bpa_setups", [])
             if _bpa_setups:
-                _log_pattern_lab_detections(sym, score, _bpa_setups, df5, now_et)
+                _log_pattern_lab_detections(
+                    sym, score, _bpa_setups, df5, now_et, prior_close=pc
+                )
 
         except Exception as e:
             logger.debug(f"Scoring error for {sym}: {e}")

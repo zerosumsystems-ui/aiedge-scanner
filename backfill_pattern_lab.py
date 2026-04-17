@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from shared.brooks_score import score_gap
 from shared.pattern_lab import (
     log_detection, update_checkpoint, finalize_outcome, detection_count, init_db,
+    build_chart_json, update_chart_json, _connect as _pl_connect,
 )
 
 LOG_DIR = Path(__file__).parent / "logs" / "live_scanner"
@@ -253,6 +254,17 @@ def backfill_date(date_str: str) -> int:
                 elif len(df5_slice) > 0:
                     price_at = float(df5_slice.iloc[-1]["close"])
 
+                chart_json = build_chart_json(
+                    df5_full=df5_full,
+                    bar_index=bar_idx,
+                    entry=setup.get("entry"),
+                    stop=setup.get("stop"),
+                    target=setup.get("target"),
+                    direction=direction,
+                    prior_close=pc,
+                    cycle_phase=cycle_phase_top,
+                )
+
                 rid = log_detection(
                     ticker=sym,
                     setup_type=setup_type,
@@ -264,6 +276,7 @@ def backfill_date(date_str: str) -> int:
                     entry_price=setup.get("entry"),
                     stop_price=setup.get("stop"),
                     target_price=setup.get("target"),
+                    entry_mode=setup.get("entry_mode"),
                     confidence=setup.get("confidence", 0.0),
                     direction=direction,
                     price_at_detect=price_at or 0.0,
@@ -275,6 +288,7 @@ def backfill_date(date_str: str) -> int:
                     signal=score.get("signal"),
                     gap_direction=gap_dir,
                     bpa_alignment=score.get("details", {}).get("bpa_alignment"),
+                    chart_json=chart_json,
                 )
 
                 if rid is None:
@@ -317,12 +331,113 @@ def backfill_date(date_str: str) -> int:
     return detections_logged
 
 
+def refill_charts_for_date(date_str: str) -> int:
+    """Recompute chart_json for every detection on date_str whose column is NULL.
+
+    Replays bars from the session pickle (no detection re-runs, no DB inserts —
+    just UPDATE chart_json on existing rows). Returns count of rows updated.
+    """
+    pkl_path = LOG_DIR / f"{date_str}_session.pkl"
+    if not pkl_path.exists():
+        logger.warning(f"No pickle for {date_str}: {pkl_path}")
+        return 0
+
+    with open(pkl_path, "rb") as f:
+        data = pickle.load(f)
+
+    saved_bars: dict = data["bars"]
+    saved_closes: dict = data.get("prior_closes", {})
+
+    # Fetch rows needing a refill for this date
+    conn = _pl_connect()
+    try:
+        rows = conn.execute(
+            """SELECT id, ticker, bar_index, entry_price, stop_price,
+                      target_price, direction, cycle_phase
+               FROM detections
+               WHERE detection_date=? AND chart_json IS NULL""",
+            (date_str,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        logger.info(f"  {date_str}: nothing to refill")
+        return 0
+
+    # Build a per-symbol df5 cache so we resample each symbol once
+    df5_cache: dict = {}
+    updated = 0
+    for row in rows:
+        sym = row["ticker"]
+        if sym not in df5_cache:
+            bar_list = saved_bars.get(sym)
+            if not bar_list or len(bar_list) < MIN_BARS:
+                df5_cache[sym] = None
+                continue
+            try:
+                df = pd.DataFrame(bar_list)
+                df5_cache[sym] = resample_to_5min(df)
+            except Exception:
+                df5_cache[sym] = None
+                continue
+        df5 = df5_cache[sym]
+        if df5 is None or len(df5) == 0:
+            continue
+
+        chart_json = build_chart_json(
+            df5_full=df5,
+            bar_index=row["bar_index"],
+            entry=row["entry_price"],
+            stop=row["stop_price"],
+            target=row["target_price"],
+            direction=row["direction"] or "unknown",
+            prior_close=saved_closes.get(sym),
+            cycle_phase=row["cycle_phase"],
+        )
+        if chart_json is None:
+            continue
+        update_chart_json(detection_id=row["id"], chart_json=chart_json)
+        updated += 1
+
+    logger.info(f"  {date_str}: refilled chart_json on {updated}/{len(rows)} rows")
+    return updated
+
+
+def refill_charts_all() -> int:
+    """Refill chart_json for all dates with a session pickle available."""
+    pickles = sorted(LOG_DIR.glob("*_session.pkl"))
+    if not pickles:
+        logger.error(f"No session pickles found in {LOG_DIR}")
+        return 0
+    total = 0
+    for pkl in pickles:
+        date_str = pkl.stem.replace("_session", "")
+        total += refill_charts_for_date(date_str)
+    return total
+
+
 def main():
     parser = argparse.ArgumentParser(description="Backfill Pattern Lab from session pickles")
     parser.add_argument("--date", help="Specific date (YYYY-MM-DD)")
+    parser.add_argument(
+        "--refill-charts",
+        action="store_true",
+        help="Only populate chart_json on existing rows — no new detections",
+    )
     args = parser.parse_args()
 
     init_db()
+
+    if args.refill_charts:
+        logger.info("Refilling chart_json on existing detections...")
+        if args.date:
+            n = refill_charts_for_date(args.date)
+        else:
+            n = refill_charts_all()
+        logger.info(f"\nTotal chart_json refills: {n}")
+        return
+
     before = detection_count()
 
     if args.date:
