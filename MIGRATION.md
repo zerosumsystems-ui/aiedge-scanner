@@ -209,7 +209,7 @@ Progress as of 2026-04-17:
       (`backfill_intraday_bars` refactored to take bars/instrument_map +
        their locks as explicit parameters — no more reliance on live_scanner
        globals)
-- [ ] Phase 4b: `fetch_intraday_key_levels` → `aiedge/data/levels.py`
+- [x] Phase 4b: `fetch_intraday_key_levels` → `aiedge/data/levels.py`
 - [ ] Phase 4c: `resample_to_5min` (live-variant) → `aiedge/data/resample.py`
 - [ ] Phase 4d: `render_chart_base64` → `aiedge/dashboard/charts.py`
 - [ ] Phase 4e: post-processing (`_dedup_etf_families`, `_compute_movement`,
@@ -227,7 +227,7 @@ Progress as of 2026-04-17:
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 2,669 LOC (303 removed so far, 10.2%).
+live_scanner.py: 2,972 → 2,567 LOC (405 removed so far, 13.6%).
 Tests: 189 passing across features/ + context/ + signals/ + risk/ + data/.
 
 ### Phase 4 (original map)
