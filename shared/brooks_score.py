@@ -132,6 +132,13 @@ from aiedge.context.daytype import (  # noqa: E402
     _classify_day_type,
     _compute_two_sided_ratio,
 )
+from aiedge.data.normalize import _normalize_databento_df  # noqa: E402
+from aiedge.data.resample import (  # noqa: E402
+    SCAN_BAR_SCHEMA,
+    SCAN_RESAMPLE,
+    _resample_to_5min,
+)
+from aiedge.data.universe import _get_default_universe  # noqa: E402
 from aiedge.risk.trader_eq import _compute_risk_reward  # noqa: E402
 from aiedge.signals.aggregator import (  # noqa: E402
     FAILED_GAP_MIN_FRAC_ADR,
@@ -699,70 +706,13 @@ def score_multiple(
 # FULL UNIVERSE SCANNER
 # =============================================================================
 
-# Default 5-min resample from 1-min bars for scoring
-SCAN_BAR_SCHEMA = "ohlcv-1m"
-SCAN_RESAMPLE = "5min"
-
-def _get_default_universe() -> list[str]:
-    """
-    Import the 498-symbol universe from the screener.
-    Falls back to a small default if screener isn't available.
-    """
-    try:
-        from stages.screener import _default_gap_universe
-        return _default_gap_universe()
-    except ImportError:
-        logger.warning("Could not import screener universe, using fallback S&P leaders")
-        return [
-            "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "BRK.B",
-            "UNH", "JNJ", "V", "XOM", "JPM", "PG", "MA", "HD", "AVGO", "CVX",
-            "LLY", "MRK", "ABBV", "PEP", "KO", "COST", "ADBE", "CRM", "WMT",
-            "TMO", "ACN", "MCD", "CSCO", "ABT", "DHR", "LIN", "NEE", "TXN",
-            "AMGN", "PM", "RTX", "LOW", "UNP", "HON", "IBM", "QCOM", "SPGI",
-            "AMAT", "DE", "GE", "CAT", "BKNG", "NOW", "ISRG", "ADP", "MRVL",
-            "SPY", "QQQ", "IWM", "SMH", "XLE", "XLF",
-        ]
+# SCAN_BAR_SCHEMA and SCAN_RESAMPLE now live in aiedge.data.resample
+# (re-imported near the top of this file).
 
 
-def _normalize_databento_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize Databento DataFrame column names to lowercase.
-    Handles the ts_event index and symbol column that Databento returns.
-    """
-    df = df.copy()
-    df.columns = [c.lower() for c in df.columns]
-
-    # Ensure datetime index
-    if not isinstance(df.index, pd.DatetimeIndex):
-        for cand in ("ts_event", "timestamp", "date"):
-            if cand in df.columns:
-                df = df.set_index(cand)
-                break
-
-    if df.index.tz is None:
-        df.index = df.index.tz_localize("UTC")
-    elif str(df.index.tz) != "UTC":
-        df.index = df.index.tz_convert("UTC")
-
-    return df
 
 
-def _resample_to_5min(df_1m: pd.DataFrame) -> pd.DataFrame:
-    """
-    Resample 1-min bars to 5-min bars for scoring.
-    Input must have columns: open, high, low, close, volume.
-    """
-    agg = {
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-    }
-    if "volume" in df_1m.columns:
-        agg["volume"] = "sum"
 
-    df_5m = df_1m.resample(SCAN_RESAMPLE).agg(agg).dropna(subset=["open", "close"])
-    return df_5m
 
 
 def scan_universe(

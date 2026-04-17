@@ -147,14 +147,16 @@ Progress as of 2026-04-17:
        and intraday flip labels → `signals/aggregator.py`;
        `_score_bpa_patterns` + BPA constants + bpa_detector import →
        `signals/bpa.py`; `_generate_summary` → `signals/summary.py`.)
-- [ ] Phase 3i: data helpers (`_normalize_databento_df`, `_resample_to_5min`,
-      `_get_default_universe`) → `aiedge/data/{normalize,resample,universe}.py`
+- [x] Phase 3i: data helpers → `aiedge/data/{normalize,resample,universe}.py`
+      (`_normalize_databento_df` → `normalize.py`; `_resample_to_5min` +
+       `SCAN_BAR_SCHEMA` + `SCAN_RESAMPLE` → `resample.py`;
+       `_get_default_universe` + fallback universe list → `universe.py`.)
 - [ ] Phase 3j: misc helpers (`_detect_phase`, `_opening_range` helper callers)
 
-brooks_score.py: 3,928 → 1,383 LOC (2,545 removed so far, 64.8%).
-Tests: 169 passing in features/ + context/ + signals/ + risk/
-(46 features + 39 context + 78 signals + 6 risk) plus 1 pre-existing
-broken test unrelated to this work.
+brooks_score.py: 3,928 → 1,333 LOC (2,595 removed so far, 66.1%).
+Tests: 179 passing across features/ + context/ + signals/ + risk/ + data/
+(46 + 39 + 78 + 6 + 10) plus 1 pre-existing broken test unrelated
+to this work.
 
 Each phase leaves brooks_score.py importing from the new modules so
 existing consumers (live_scanner.py, pattern_lab_api.py, tests) keep
