@@ -249,16 +249,23 @@ Progress as of 2026-04-17:
        out here to match the architectural layout.)
 - [x] Phase 4i: notifiers (`update_apple_note`, `fire_alert`) →
       `aiedge/dashboard/notifiers.py`
-- [ ] Phase 4j: runners (`scan_thread_func`, `stream_thread_func`,
-      `save_final_results`, `save_session_data`, `_replay_session`, `main`,
-      `run_scan`) → `aiedge/runners/live.py`
+- [x] Phase 4j: runner + all remaining state → `aiedge/runners/live.py`
+      (live_scanner.py became a 64-LOC compat shim that re-exports
+       everything from `aiedge.runners.live` + `main()` dispatch)
 
-live_scanner.py: 2,972 → 999 LOC (1,973 removed so far, **66.4%** reduction).
+live_scanner.py: 2,972 → 64 LOC (pure compat shim, **97.8% reduction**).
+aiedge/runners/live.py: 1,000 LOC — the actual scanner runtime.
+
+Phase 4 complete. live_scanner.py now just does:
+```python
+from aiedge.runners.live import *
+if __name__ == "__main__": main()
+```
+
 Tests: 218 passing across features/ + context/ + signals/ + risk/ + data/.
-(No new tests for pattern_lab / console / html / serializers / notifiers —
-the functions either wrap SQLite / AppleScript / HTTP, or produce
-presentation output that diff-tests would lock in place; end-to-end smoke
-verified via _build_card_html + _serialize_scan_payload with sample data.)
+End-to-end smoke verified: `from live_scanner import X` still works for every
+X that tools/, scratch/, and tests/ currently import; python live_scanner.py
+still runs main() (which lives in aiedge.runners.live).
 
 ### Phase 4 (original map)
 
