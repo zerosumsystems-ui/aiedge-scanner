@@ -68,5 +68,3 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*", "*Tests"]
 python_functions = ["test_*"]
-# Skip the pre-existing broken script-style test with a hardcoded path.
-addopts = "--ignore=tests/test_spt_qc.py"
