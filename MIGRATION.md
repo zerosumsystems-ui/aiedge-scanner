@@ -336,10 +336,46 @@ Note: `content/` and `shared/` are included so the installed package
 can still import from them during the transition; they'll be fully
 migrated in a later pass.
 
-### Phase 8 — Expand test coverage
+### Phase 8 — Expand test coverage (complete 2026-04-17)
 
 Target: 80% line coverage on `features/`, `context/`, `signals/`,
-`risk/`, `execution/`. These are pure functions — easy to test.
+`risk/`, `execution/`. **Achieved 82%** across those packages.
+
+Per-module coverage:
+
+| Module | Coverage |
+|---|---|
+| features/candles.py | 100% |
+| features/ema.py | 100% |
+| features/session.py | 86% |
+| features/swings.py | 100% |
+| features/volatility.py | 100% |
+| context/daytype.py | 80% |
+| context/phase.py | 96% |
+| context/shape.py | 80% |
+| signals/aggregator.py | 78% |
+| signals/bpa.py | 95% |
+| signals/components.py | 77% |
+| signals/postprocess.py | 100% |
+| signals/summary.py | 92% |
+| risk/trader_eq.py | 94% |
+
+New tests added in Phase 8:
+- `tests/context/test_shape.py` — scenario-based fixtures for each
+  of the 5 raw shape scorers + classify_session_shape full-scenario tests
+  (moved shape from 51% to 80%).
+- `tests/signals/test_bpa.py` — `_score_bpa_patterns` with a mocked
+  `_bpa_detect_all` covering: disabled, unavailable, short df, detector
+  exception, confidence filter, recency filter, each setup-type branch
+  (H1/H2/L1/L2/FL1/FL2/spike_channel), opposing direction, multi-setup
+  best-wins, output serialization shape (bpa from 26% to 95%).
+- `tests/signals/test_components.py` — branch coverage for bear
+  directions across all component scorers + extra uncertainty branches
+  (reversal counts, trendline-broken, long chop for EMA-wrong-side)
+  + SPT bear path + zigzag trending-swings.
+
+Run `pytest --cov=aiedge.features --cov=aiedge.context --cov=aiedge.signals --cov=aiedge.risk --cov=aiedge.execution`
+to reproduce the 82% total.
 
 ---
 

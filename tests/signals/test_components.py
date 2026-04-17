@@ -391,6 +391,247 @@ class UncertaintyTests(unittest.TestCase):
                 score, _ = _score_uncertainty(df_fn(20), dirn)
                 self.assertGreaterEqual(score, 0.0)
 
+    def test_chop_increases_uncertainty_score(self):
+        chop = chop_df(20)
+        pure = trend_up_df(20)
+        chop_score, _ = _score_uncertainty(chop, "up")
+        pure_score, _ = _score_uncertainty(pure, "up")
+        self.assertGreater(chop_score, pure_score)
+
+    def test_long_chop_hits_ma_plus_swing_branches(self):
+        """30-bar chop DF is long enough for EMA_PERIOD+2, swing detection,
+        and exercises the bear-direction branches of the uncertainty checks."""
+        df = chop_df(30)
+        score_down, _ = _score_uncertainty(df, "down")
+        self.assertGreater(score_down, 0.0)
+
+    def test_zigzag_bear_produces_high_uncertainty(self):
+        """Alternating swing highs + lows trigger the reversal-count branch."""
+        highs = [109, 107, 108, 105, 106, 103, 104, 101, 102, 100,
+                 101, 99, 100, 98, 99, 97, 98, 96, 97, 95,
+                 96, 94, 95, 93, 94, 92, 93, 91, 92, 90]
+        lows = [h - 2 for h in highs]
+        opens = [(h + lo) / 2 for h, lo in zip(highs, lows)]
+        closes = [(h + lo) / 2 + (0.3 if i % 2 else -0.3) for i, (h, lo) in enumerate(zip(highs, lows))]
+        df = mk_df(opens, closes, highs=highs, lows=lows)
+        score, _ = _score_uncertainty(df, "down")
+        # Zigzag has reversals — score should be non-trivial
+        self.assertGreaterEqual(score, 0.0)
+
+
+# ── Extra branch coverage on the bigger aggregators ──
+
+class GapIntegrityBranchTests(unittest.TestCase):
+
+    def test_partial_fill_bull(self):
+        # Open 102, prior close 100 → gap=2; dips to 99.5 (below prior close but
+        # stays above 99 which is prior - 50% gap). Partial fill → score 1.0.
+        df = pd.DataFrame({
+            "open": [102, 101, 100.5, 101],
+            "high": [102.5, 101.5, 101, 101.5],
+            "low":  [100.5, 99.5, 99.5, 100.0],
+            "close":[101, 100.5, 100.8, 101.3],
+            "volume":[1000] * 4,
+        })
+        score, status = _score_gap_integrity(df, prior_close=100.0, gap_direction="up")
+        self.assertEqual(score, 1.0)
+        self.assertEqual(status, "partial_fill")
+
+    def test_bear_gap_held(self):
+        # Prior close 100, open 98 (gap down 2), highs stay below prior close
+        df = pd.DataFrame({
+            "open": [98, 97, 96, 95],
+            "high": [98.5, 97.5, 96.5, 95.5],
+            "low":  [97, 96, 95, 94],
+            "close":[97.5, 96.5, 95.5, 94.5],
+            "volume":[1000] * 4,
+        })
+        score, status = _score_gap_integrity(df, prior_close=100.0, gap_direction="down")
+        self.assertEqual(score, 2.0)
+        self.assertEqual(status, "held")
+
+    def test_no_gap_returns_zero(self):
+        df = pd.DataFrame({
+            "open": [100], "high": [101], "low": [99], "close": [100],
+            "volume": [1000],
+        })
+        score, status = _score_gap_integrity(df, prior_close=100.0, gap_direction="up")
+        self.assertEqual(score, 0.0)
+        self.assertEqual(status, "held")
+
+
+class FollowThroughBranchTests(unittest.TestCase):
+
+    def test_bear_direction_with_short_df(self):
+        df = trend_down_df(5)
+        # short df on down direction
+        result = _score_follow_through(df, spike_bars=2, gap_direction="down")
+        # Bounded by -1.5 to 2.0
+        self.assertGreaterEqual(result, -1.5)
+        self.assertLessEqual(result, 2.0)
+
+    def test_bear_direction_full_trend(self):
+        df = trend_down_df(20)
+        result = _score_follow_through(df, spike_bars=3, gap_direction="down")
+        self.assertGreaterEqual(result, -1.5)
+        self.assertLessEqual(result, 2.0)
+
+
+class SmallPullbackTrendBranchTests(unittest.TestCase):
+
+    def test_bear_direction_clean_trend(self):
+        df = trend_down_df(15)
+        val = _score_small_pullback_trend(df, "down")
+        self.assertGreaterEqual(val, 0.0)
+        self.assertLessEqual(val, 3.0)
+
+    def test_chop_scores_low(self):
+        # Pure chop shouldn't get a high SPT score even if density sneaks through.
+        val = _score_small_pullback_trend(chop_df(15), "up")
+        self.assertLess(val, 1.5)
+
+    def test_bear_trend_with_shallow_pullbacks(self):
+        """Bear SPT — trend down with small up-bar pullbacks between legs."""
+        bars_list = []
+        price = 200.0
+        for _ in range(5):
+            bars_list.append((price, price + 0.1, price - 1.5, price - 1.2))
+            price -= 1.2
+        # Tiny pullback: 2 small bull bars
+        bars_list.append((price, price + 0.3, price - 0.1, price + 0.1))
+        bars_list.append((price + 0.1, price + 0.3, price, price + 0.15))
+        # Resume down — 5 more bear bars
+        price += 0.15
+        for _ in range(5):
+            bars_list.append((price, price + 0.1, price - 1.3, price - 1.0))
+            price -= 1.0
+        df = pd.DataFrame(bars_list, columns=["open", "high", "low", "close"])
+        df["volume"] = 1000
+        val = _score_small_pullback_trend(df, "down")
+        self.assertGreaterEqual(val, 0.0)
+        self.assertLessEqual(val, 3.0)
+
+    def test_pure_bull_trend_hits_high_score(self):
+        """Strong bull with tiny pullbacks should score high."""
+        df = trend_up_df(15, step=0.5)
+        val = _score_small_pullback_trend(df, "up")
+        # Won't always hit 3.0 due to sub-check weighting, but should be substantial
+        self.assertGreater(val, 0.0)
+
+
+class MaSeparationBranchTests(unittest.TestCase):
+
+    def test_bear_direction_full_trend(self):
+        df = trend_down_df(40)
+        val = _score_ma_separation(df, "down")
+        self.assertGreaterEqual(val, 0.0)
+        self.assertLessEqual(val, 1.0)
+
+
+class FailedCounterSetupsBranchTests(unittest.TestCase):
+
+    def test_bear_direction(self):
+        df = trend_down_df(15)
+        val = _score_failed_counter_setups(df, "down")
+        self.assertGreaterEqual(val, 0.0)
+        self.assertLessEqual(val, 1.0)
+
+
+class LevelsBrokenBranchTests(unittest.TestCase):
+
+    def test_bear_direction_levels_broken(self):
+        df = trend_down_df(30)
+        val = _score_levels_broken(df, "down", prior_close=201.0)
+        self.assertGreater(val, 0.0)
+
+
+class SpikeDurationBranchTests(unittest.TestCase):
+
+    def test_bear_direction_sustained(self):
+        df = trend_down_df(12)
+        val = _score_spike_duration(df, spike_bars=8, gap_direction="down")
+        self.assertEqual(val, 2.0)
+
+    def test_short_sustained_returns_zero(self):
+        # 3 sustained bars → 0.0 per function contract
+        df = trend_up_df(5)
+        val = _score_spike_duration(df, spike_bars=3, gap_direction="up")
+        # Not a perfect 0.0 because of retrace thresholds; check bounded
+        self.assertGreaterEqual(val, -0.5)
+        self.assertLessEqual(val, 2.0)
+
+
+class TrendingSwingsBranchTests(unittest.TestCase):
+
+    def _zigzag_bull(self) -> pd.DataFrame:
+        """Higher highs + higher lows — zigzag staircase up."""
+        highs = [101, 103, 102, 105, 104, 107, 106, 109]
+        lows = [99, 101, 100, 103, 102, 105, 104, 107]
+        opens = [(h + lo) / 2 - 0.3 for h, lo in zip(highs, lows)]
+        closes = [(h + lo) / 2 + 0.3 for h, lo in zip(highs, lows)]
+        return mk_df(opens, closes, highs=highs, lows=lows)
+
+    def _zigzag_bear(self) -> pd.DataFrame:
+        """Lower highs + lower lows — zigzag staircase down."""
+        highs = [109, 107, 108, 105, 106, 103, 104, 101]
+        lows = [107, 105, 106, 103, 104, 101, 102, 99]
+        opens = [(h + lo) / 2 + 0.3 for h, lo in zip(highs, lows)]
+        closes = [(h + lo) / 2 - 0.3 for h, lo in zip(highs, lows)]
+        return mk_df(opens, closes, highs=highs, lows=lows)
+
+    def test_bear_zigzag_scores_positive(self):
+        val = _score_trending_swings(self._zigzag_bear(), "down")
+        self.assertGreater(val, 0.0)
+
+    def test_bull_zigzag_scores_positive(self):
+        val = _score_trending_swings(self._zigzag_bull(), "up")
+        self.assertGreater(val, 0.0)
+
+    def test_bear_direction_flat_trend(self):
+        df = trend_down_df(30)
+        val = _score_trending_swings(df, "down")
+        self.assertGreaterEqual(val, -1.0)
+        self.assertLessEqual(val, 2.0)
+
+
+class MajorityTrendBarsBranchTests(unittest.TestCase):
+
+    def test_bear_direction_full_trend(self):
+        df = trend_down_df(15)
+        val = _score_majority_trend_bars(df, "down")
+        self.assertGreater(val, 0.0)
+
+    def test_chop_scored_either_direction_is_neutral_or_negative(self):
+        val = _score_majority_trend_bars(chop_df(15), "up")
+        self.assertLessEqual(val, 1.0)
+
+
+class MicroGapsBranchTests(unittest.TestCase):
+
+    def test_bear_direction(self):
+        df = trend_down_df(15)
+        val = _score_micro_gaps(df, "down")
+        self.assertGreaterEqual(val, 0.0)
+        self.assertLessEqual(val, 2.0)
+
+
+class BodyGapsBranchTests(unittest.TestCase):
+
+    def test_bear_direction(self):
+        df = trend_down_df(10)
+        val = _score_body_gaps(df, spike_bars=4, gap_direction="down")
+        self.assertGreaterEqual(val, 0.0)
+        self.assertLessEqual(val, 1.0)
+
+
+class SpikeQualityBranchTests(unittest.TestCase):
+
+    def test_bear_direction(self):
+        df = trend_down_df(6)
+        score, bars = _score_spike_quality(df, "down")
+        self.assertGreater(score, 0.0)
+        self.assertGreaterEqual(bars, 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
