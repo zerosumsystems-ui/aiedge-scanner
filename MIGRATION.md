@@ -230,11 +230,14 @@ Progress as of 2026-04-17:
          `_next_scan_after`, `_next_scan_time_str`, ANSI color constants)
         → `aiedge/dashboard/console.py`
         (wrappers in live_scanner bind `FIRST_SCAN_HOUR` / `FIRST_SCAN_MIN`)
-  - [ ] Phase 4g-2: HTML card + full-page rendering (`_HTML_HEAD`, `_HTML_FOOT`,
+  - [x] Phase 4g-2: HTML card + full-page rendering (`_HTML_HEAD`, `_HTML_FOOT`,
         `_SIG_CSS`, `_signal_badge`, `_rank_arrow_html`, `_movement_html`,
         `_bar_html`, `_adr_mult_tier`, `_build_component_strip`,
         `_build_card_html`, `_generate_dashboard`)
         → `aiedge/dashboard/render.py`
+        (`_generate_dashboard` refactored to take `intraday_levels`,
+         `dashboard_path`, `first_scan_hour`, `first_scan_min` as parameters;
+         live_scanner keeps a wrapper that binds its module-level globals.)
 - [ ] Phase 4h: serializers (`_serialize_bars`, `_serialize_key_levels`,
       `_serialize_scan_payload`) → `aiedge/dashboard/serializers.py`
 - [ ] Phase 4i: api client + notifiers (`_post_to_aiedge`, `update_apple_note`,
@@ -243,11 +246,12 @@ Progress as of 2026-04-17:
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 2,040 LOC (932 removed so far, 31.4%).
+live_scanner.py: 2,972 → 1,033 LOC (1,939 removed so far, 65.2%).
 Tests: 218 passing across features/ + context/ + signals/ + risk/ + data/.
 (No new tests for pattern_lab / console / html — the functions either wrap
 SQLite (pattern_lab) or produce presentation output that diff-tests would
-lock in place; verified via end-to-end smoke through live_scanner import.)
+lock in place; verified via end-to-end smoke through live_scanner import
+and a real _build_card_html call with sample data.)
 
 ### Phase 4 (original map)
 
