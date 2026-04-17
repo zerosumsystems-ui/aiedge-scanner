@@ -215,8 +215,11 @@ Progress as of 2026-04-17:
       `_resample_to_5min` simple helper). `ET` also moved to resample.py to
       avoid a circular import with databento.py.
 - [x] Phase 4d: `render_chart_base64` → `aiedge/dashboard/charts.py`
-- [ ] Phase 4e: post-processing (`_dedup_etf_families`, `_compute_movement`,
+- [x] Phase 4e: post-processing (`_dedup_etf_families`, `_compute_movement`,
       `_fmt_movement`, `_fmt_delta`, `annotate_adr_multiple`) → `aiedge/signals/postprocess.py`
+      (`annotate_adr_multiple` refactored to take `daily_atrs` as a parameter;
+       live_scanner keeps a 3-arg wrapper that binds to its global. ETF_FAMILIES
+       + SAME_COMPANY + _TICKER_TO_FAMILY moved alongside the dedup function.)
 - [ ] Phase 4f: pattern-lab logging (`_log_pattern_lab_detections`,
       `_update_pattern_lab_outcomes`) → `aiedge/storage/pattern_lab.py`
 - [ ] Phase 4g: dashboard HTML (`_build_*_html`, `_bar_html`, `_signal_badge`,
@@ -230,8 +233,8 @@ Progress as of 2026-04-17:
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 2,464 LOC (508 removed so far, 17.1%).
-Tests: 194 passing across features/ + context/ + signals/ + risk/ + data/.
+live_scanner.py: 2,972 → 2,319 LOC (653 removed so far, 22.0%).
+Tests: 218 passing across features/ + context/ + signals/ + risk/ + data/.
 
 ### Phase 4 (original map)
 
