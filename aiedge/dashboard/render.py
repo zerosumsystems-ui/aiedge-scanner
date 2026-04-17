@@ -555,6 +555,25 @@ def _build_card_html(r: dict, chart_b64: str | None) -> str:
     else:
         fam_badge = ""
 
+    # Correlation-dedup badge (B1) — appears after static-family dedup catches
+    # additional cross-family correlated siblings (e.g. SPY↔QQQ on tech-heavy days).
+    corr_sibs = r.get("corr_siblings") or []
+    corr_n    = len(corr_sibs)
+    if corr_n:
+        corr_tip = ", ".join(corr_sibs)
+        corr_badge = (
+            f'<span class="corr-badge" '
+            f'title="Suppressed {corr_n} correlated ticker(s) (>=0.85 Pearson): {corr_tip}" '
+            f'style="display:inline-block;margin-left:6px;padding:1px 6px;'
+            f'font-size:10px;font-weight:600;letter-spacing:0.3px;'
+            f'background:#3b2b52;color:#c8a4e8;border:1px solid #52397c;'
+            f'border-radius:10px;vertical-align:middle;">'
+            f'+{corr_n}&nbsp;correlated'
+            f'</span>'
+        )
+    else:
+        corr_badge = ""
+
     # HTF-alignment chip (B4) — right next to the family badge. Hidden on
     # "no_data" so cards without enough daily history stay clean. Arrows
     # match the setup direction so a short in a downtrend reads ↓D ↓W.
@@ -635,7 +654,7 @@ def _build_card_html(r: dict, chart_b64: str | None) -> str:
 
     ticker_html = (
         f'<div class="ticker-block">'
-        f'<div class="ticker">{ticker}{fam_badge}{htf_badge}</div>'
+        f'<div class="ticker">{ticker}{fam_badge}{corr_badge}{htf_badge}</div>'
         f'<div class="day-type">{day_type} {cp_html} {fill_badge}</div>'
         f'</div>'
     )
