@@ -224,9 +224,17 @@ Progress as of 2026-04-17:
       `update_pattern_lab_outcomes`) → `aiedge/storage/pattern_lab.py`
       (`update_pattern_lab_outcomes` refactored to take bars/bars_lock as
        parameters; live_scanner keeps private wrappers that bind its globals.)
-- [ ] Phase 4g: dashboard HTML (`_build_*_html`, `_bar_html`, `_signal_badge`,
-      `_movement_html`, `_format_note_text`, `_generate_dashboard`,
-      `print_leaderboard`) → `aiedge/dashboard/{html_cards,render}.py`
+- [~] Phase 4g: dashboard rendering split into two sub-phases
+  - [x] Phase 4g-1: console leaderboard + Apple Note formatters
+        (`print_leaderboard`, `_format_note_text`, `_movement_arrow`,
+         `_next_scan_after`, `_next_scan_time_str`, ANSI color constants)
+        → `aiedge/dashboard/console.py`
+        (wrappers in live_scanner bind `FIRST_SCAN_HOUR` / `FIRST_SCAN_MIN`)
+  - [ ] Phase 4g-2: HTML card + full-page rendering (`_HTML_HEAD`, `_HTML_FOOT`,
+        `_SIG_CSS`, `_signal_badge`, `_rank_arrow_html`, `_movement_html`,
+        `_bar_html`, `_adr_mult_tier`, `_build_component_strip`,
+        `_build_card_html`, `_generate_dashboard`)
+        → `aiedge/dashboard/render.py`
 - [ ] Phase 4h: serializers (`_serialize_bars`, `_serialize_key_levels`,
       `_serialize_scan_payload`) → `aiedge/dashboard/serializers.py`
 - [ ] Phase 4i: api client + notifiers (`_post_to_aiedge`, `update_apple_note`,
@@ -235,10 +243,11 @@ Progress as of 2026-04-17:
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 2,126 LOC (846 removed so far, 28.5%).
+live_scanner.py: 2,972 → 2,040 LOC (932 removed so far, 31.4%).
 Tests: 218 passing across features/ + context/ + signals/ + risk/ + data/.
-(No new tests for pattern_lab — the functions wrap shared.pattern_lab
-which has SQLite dependencies not worth mocking mid-refactor.)
+(No new tests for pattern_lab / console / html — the functions either wrap
+SQLite (pattern_lab) or produce presentation output that diff-tests would
+lock in place; verified via end-to-end smoke through live_scanner import.)
 
 ### Phase 4 (original map)
 
