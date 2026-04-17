@@ -5,8 +5,8 @@ Upload stage: uploads final MP4 to YouTube.
 import logging
 from datetime import datetime
 
-from shared.youtube_uploader import YouTubeUploader
-from shared.gemini_writer import ScriptWriter
+from content.shared.youtube_uploader import YouTubeUploader
+from content.shared.gemini_writer import ScriptWriter
 
 logger = logging.getLogger(__name__)
 

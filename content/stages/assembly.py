@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-from shared.ffmpeg_assembler import FFmpegAssembler
+from content.shared.ffmpeg_assembler import FFmpegAssembler
 from shared.config_loader import get_output_dir
 
 logger = logging.getLogger(__name__)

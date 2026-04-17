@@ -5,7 +5,7 @@ Narration stage: generates audio for all segments via ElevenLabs.
 import logging
 from pathlib import Path
 
-from shared.elevenlabs_narrator import Narrator
+from content.shared.elevenlabs_narrator import Narrator
 
 logger = logging.getLogger(__name__)
 

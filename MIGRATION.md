@@ -37,7 +37,7 @@ Two other problems compound:
 
 ```
 aiedge-scanner/
-├── src/aiedge/
+├── aiedge/
 │   ├── data/           # Layer 1 — acquisition (pure I/O)
 │   ├── features/       # Layer 2 — pure bar math
 │   ├── context/        # Layer 3 — market-state classifiers
@@ -51,7 +51,7 @@ aiedge-scanner/
 ├── content/            # video pipeline (isolated from scanner)
 ├── api/                # Flask/FastAPI for aiedge.trade site
 ├── tools/              # analysis tools
-├── tests/              # mirrors src/aiedge/
+├── tests/              # mirrors aiedge/
 ├── scratch/            # diagnostic/scratch files
 ├── bin/                # shell entry points
 ├── configs/            # YAML configs (thresholds, universe, etc.)
@@ -84,7 +84,7 @@ guarantee that research == production.
 
 ### Phase 0 — Skeleton + plan (complete 2026-04-17)
 
-- [x] Create directory tree under `src/aiedge/`.
+- [x] Create directory tree under `aiedge/`.
 - [x] Create `__init__.py` files with layer purpose docstrings.
 - [x] Move scratch files to `scratch/`.
 - [x] Write this MIGRATION.md.
@@ -103,15 +103,24 @@ Blocked files:
 - `stages/screener.py` (+3)
 - `shared/brooks_score.py` (+1)
 
-### Phase 2 — Isolate content pipeline
+### Phase 2 — Isolate content pipeline (complete 2026-04-17)
 
-Move to `content/`:
-- `stages/{narration,assembly,broll_generation,script,upload,newsletter}.py`
-- `shared/{claude_writer,gemini_writer,elevenlabs_narrator,
-  ffmpeg_assembler,kling_client,veo_client,youtube_uploader,
-  newsletter_publisher}.py`
+- [x] Move `stages/{narration,assembly,broll_generation,script,upload,
+      newsletter,chart_generation,log}.py` → `content/stages/`
+- [x] Move `shared/{claude_writer,gemini_writer,elevenlabs_narrator,
+      ffmpeg_assembler,kling_client,veo_client,youtube_uploader,
+      newsletter_publisher}.py` → `content/shared/`
+- [x] Update imports in `pipeline.py`, `content/stages/*.py`,
+      `tests/test_script_validator.py` to reference new paths
+- [x] `stages/` now scanner-only (just `screener.py`)
+- [x] `shared/` now scanner-only (bpa_detector, brooks_score, pattern_lab,
+      chart_renderer, databento_client, config_loader, sqlite_logger,
+      notifier)
+- [x] Verify all moved/edited files pass `python -m py_compile`
 
-`stages/screener.py` and `stages/chart_generation.py` stay (scanner).
+Note: `chart_generation.py` moved to content/ — it renders video-segment
+charts. Scanner chart rendering is done by `live_scanner.render_chart_base64`
+which stays in scanner and will move to `dashboard/` in Phase 4.
 
 ### Phase 3 — Carve brooks_score.py (biggest)
 

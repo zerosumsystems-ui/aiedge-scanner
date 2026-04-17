@@ -29,9 +29,10 @@ from shared.config_loader import load_config, load_env, get_run_dir, get_project
 from shared import sqlite_logger
 from shared.notifier import Notifier
 
-# Pipeline stages
-from stages import screener, script, chart_generation, broll_generation
-from stages import narration, assembly, upload, newsletter, log
+# Pipeline stages — screener lives in scanner-root stages/, content stages live in content/
+from stages import screener
+from content.stages import script, chart_generation, broll_generation
+from content.stages import narration, assembly, upload, newsletter, log
 
 
 STAGES = [

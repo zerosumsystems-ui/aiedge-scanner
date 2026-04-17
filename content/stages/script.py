@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 
-from shared.claude_writer import ScriptWriter
+from content.shared.claude_writer import ScriptWriter
 
 logger = logging.getLogger(__name__)
 

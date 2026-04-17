@@ -5,7 +5,7 @@ B-roll generation stage: creates intro and outro clips via Kling.
 import logging
 from pathlib import Path
 
-from shared.veo_client import VeoClient
+from content.shared.veo_client import VeoClient
 
 logger = logging.getLogger(__name__)
 

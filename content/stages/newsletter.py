@@ -5,7 +5,7 @@ Runs in parallel with YouTube upload — uses same run artifacts.
 
 import logging
 
-from shared.newsletter_publisher import NewsletterPublisher
+from content.shared.newsletter_publisher import NewsletterPublisher
 
 logger = logging.getLogger(__name__)
 

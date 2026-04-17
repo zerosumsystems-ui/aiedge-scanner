@@ -1,6 +1,6 @@
 """
 Verification test for the annotations auto-fill behavior in both
-shared/gemini_writer._validate_script and shared/claude_writer._validate_script.
+content/shared/gemini_writer._validate_script and content/shared/claude_writer._validate_script.
 
 Covers:
   1. Missing 'annotations' → auto-filled to {} + warning logged (no raise)
@@ -57,8 +57,8 @@ for name in (
 
 
 # Now import both validators
-from shared import gemini_writer  # noqa: E402
-from shared import claude_writer  # noqa: E402
+from content.shared import gemini_writer  # noqa: E402
+from content.shared import claude_writer  # noqa: E402
 
 
 VALID_SEGMENT = {
