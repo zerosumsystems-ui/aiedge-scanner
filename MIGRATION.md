@@ -247,18 +247,18 @@ Progress as of 2026-04-17:
        wrappers that bind its globals. These four functions were initially
        bundled into render.py by Phase 4g-2's wholesale block move; split
        out here to match the architectural layout.)
-- [ ] Phase 4i: notifiers (`update_apple_note`, `fire_alert`) →
+- [x] Phase 4i: notifiers (`update_apple_note`, `fire_alert`) →
       `aiedge/dashboard/notifiers.py`
 - [ ] Phase 4j: runners (`scan_thread_func`, `stream_thread_func`,
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 1,074 LOC (1,898 removed so far, 63.9%).
+live_scanner.py: 2,972 → 999 LOC (1,973 removed so far, **66.4%** reduction).
 Tests: 218 passing across features/ + context/ + signals/ + risk/ + data/.
-(No new tests for pattern_lab / console / html / serializers — the
-functions either wrap SQLite or produce presentation output that
-diff-tests would lock in place; end-to-end smoke verified via
-_build_card_html + _serialize_scan_payload with sample data.)
+(No new tests for pattern_lab / console / html / serializers / notifiers —
+the functions either wrap SQLite / AppleScript / HTTP, or produce
+presentation output that diff-tests would lock in place; end-to-end smoke
+verified via _build_card_html + _serialize_scan_payload with sample data.)
 
 ### Phase 4 (original map)
 
