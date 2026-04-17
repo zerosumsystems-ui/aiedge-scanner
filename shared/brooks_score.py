@@ -65,7 +65,7 @@ TAIL_BAD_PCT = 0.30            # tail > 30% of range on wrong side = penalty tri
 BODY_GAP_BONUS = 0.50          # bonus per body gap between consecutive bars, cap 1.0
 
 # ── MA Separation (urgency component 7, up to +1 pt raw) ──
-EMA_PERIOD = 20                # exponential moving average period
+# EMA_PERIOD now lives in aiedge.features.ema (re-imported below).
 MA_GAP_BARS_STRONG = 10        # 10+ bars above/below EMA = +1
 MA_GAP_BARS_MODERATE = 5       # 5-9 bars = +0.5
 
@@ -132,7 +132,7 @@ TWO_SIDED_HIGH = 0.35          # 35-45% = +2
 TWO_SIDED_MODERATE = 0.25      # 25-35% = +1
 
 # ── Opening Range Analysis ──
-OPENING_RANGE_BARS = 6         # first 30 min on 5-min bars
+# OPENING_RANGE_BARS now lives in aiedge.features.session (re-imported below).
 OR_TREND_FROM_OPEN = 0.25      # OR < 25% of avg range = trend from open
 OR_TRENDING_TR_LOW = 0.25      # OR 25-50% = trending TR setup
 OR_TRENDING_TR_HIGH = 0.50
@@ -214,41 +214,15 @@ from aiedge.features.candles import (  # noqa: E402  (import after constants)
     _upper_tail_pct,
     _close_position,
 )
+from aiedge.features.ema import EMA_PERIOD, _compute_ema  # noqa: E402
+from aiedge.features.swings import _find_swing_lows, _find_swing_highs  # noqa: E402
+from aiedge.features.volatility import _compute_daily_atr  # noqa: E402
+from aiedge.features.session import OPENING_RANGE_BARS, _opening_range  # noqa: E402
 
 
 # =============================================================================
 # SCORING COMPONENTS — URGENCY (9 components, ~14 raw pts → normalized 0-10)
 # =============================================================================
-
-def _compute_ema(closes: np.ndarray, period: int = EMA_PERIOD) -> np.ndarray:
-    """Simple EMA calculation. Returns array same length as input."""
-    if len(closes) == 0:
-        return np.array([])
-    ema = np.zeros_like(closes, dtype=float)
-    multiplier = 2.0 / (period + 1)
-    ema[0] = closes[0]
-    for i in range(1, len(closes)):
-        ema[i] = closes[i] * multiplier + ema[i - 1] * (1 - multiplier)
-    return ema
-
-
-def _find_swing_lows(df: pd.DataFrame, min_bars: int = 3) -> list[tuple[int, float]]:
-    """Find swing lows: bar where low < low[i-1] AND low < low[i+1]. Returns [(index, price)]."""
-    swings = []
-    for i in range(1, len(df) - 1):
-        if df.iloc[i]["low"] < df.iloc[i - 1]["low"] and df.iloc[i]["low"] < df.iloc[i + 1]["low"]:
-            swings.append((i, df.iloc[i]["low"]))
-    return swings
-
-
-def _find_swing_highs(df: pd.DataFrame, min_bars: int = 3) -> list[tuple[int, float]]:
-    """Find swing highs: bar where high > high[i-1] AND high > high[i+1]. Returns [(index, price)]."""
-    swings = []
-    for i in range(1, len(df) - 1):
-        if df.iloc[i]["high"] > df.iloc[i - 1]["high"] and df.iloc[i]["high"] > df.iloc[i + 1]["high"]:
-            swings.append((i, df.iloc[i]["high"]))
-    return swings
-
 
 def _score_spike_quality(df: pd.DataFrame, gap_direction: str) -> tuple[float, int]:
     """
@@ -1968,42 +1942,8 @@ def _score_uncertainty(df: pd.DataFrame, gap_direction: str) -> tuple[float, str
 # PHASE 1 — OPENING RANGE, DAY TYPE, NEW COMPONENTS, WEIGHT MATRIX
 # =============================================================================
 
-def _opening_range(df: pd.DataFrame, n_bars: int = OPENING_RANGE_BARS,
-                   avg_daily_range: float = None) -> dict:
-    """
-    Compute the opening range from the first N bars (default 6 = first 30 min).
-    If avg_daily_range is not provided, estimate from the data we have.
-    """
-    n = min(n_bars, len(df))
-    if n < 1:
-        return {"range_high": 0.0, "range_low": 0.0, "range_size": 0.0, "range_pct": 0.5}
-
-    range_high = float(df.iloc[:n]["high"].max())
-    range_low = float(df.iloc[:n]["low"].min())
-    range_size = range_high - range_low
-
-    # Estimate avg daily range from the full session data if not given
-    if avg_daily_range is None or avg_daily_range <= MIN_RANGE:
-        # Use the current day's full range as a rough proxy (underestimates early in day)
-        day_range = float(df["high"].max() - df["low"].min())
-        # Scale up if we don't have a full day: assume first hour ≈ 60-70% of day range
-        hours_of_data = len(df) * 5 / 60  # assume 5-min bars
-        if hours_of_data < 2:
-            avg_daily_range = day_range / 0.5  # early = aggressive estimate
-        elif hours_of_data < 4:
-            avg_daily_range = day_range / 0.7
-        else:
-            avg_daily_range = day_range / 0.85
-        avg_daily_range = max(avg_daily_range, MIN_RANGE)
-
-    range_pct = range_size / avg_daily_range
-
-    return {
-        "range_high": round(range_high, 4),
-        "range_low": round(range_low, 4),
-        "range_size": round(range_size, 4),
-        "range_pct": round(range_pct, 3),
-    }
+# _opening_range now lives in aiedge.features.session
+# (re-imported near top of this file).
 
 
 def _compute_two_sided_ratio(df: pd.DataFrame, gap_direction: str) -> float:
@@ -2852,12 +2792,8 @@ def _generate_summary(signal: str, urgency: float, uncertainty: float,
 # ATR HELPER
 # =============================================================================
 
-def _compute_daily_atr(daily_bars: pd.DataFrame, period: int = 20) -> float:
-    """Compute Average Daily Range from daily OHLCV bars (high - low, no true-range gap)."""
-    if daily_bars is None or len(daily_bars) < 2:
-        return 0.0
-    ranges = daily_bars["high"] - daily_bars["low"]
-    return float(ranges.tail(period).mean())
+# _compute_daily_atr now lives in aiedge.features.volatility
+# (re-imported near top of this file).
 
 
 # =============================================================================
