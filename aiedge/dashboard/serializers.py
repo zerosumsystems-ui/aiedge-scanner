@@ -160,6 +160,24 @@ def _serialize_scan_payload(
                 if kl:
                     chart_obj["keyLevels"] = kl
 
+        # BPA active setup type names (e.g. ["H2", "spike_channel"]).
+        # details.bpa_setups is a list of dicts with a 'type' key; fall back
+        # to the top-level key in case a future scorer emits it directly.
+        raw_bpa_setups = details.get("bpa_setups") or r.get("bpa_active_setups") or []
+        bpa_active_setups: list[str] = []
+        for s in raw_bpa_setups:
+            if isinstance(s, dict):
+                t = s.get("type")
+                if isinstance(t, str) and t:
+                    bpa_active_setups.append(t)
+            elif isinstance(s, str) and s:
+                bpa_active_setups.append(s)
+
+        # Phase / day-type label for market context. Prefer the scorer's
+        # top-level 'phase' (aggregator output); fall back to day_type.
+        phase = r.get("phase") or r.get("day_type") or "undetermined"
+        phase = str(phase).replace(" ", "_")
+
         entry = {
             "ticker": ticker,
             "rank": r.get("rank", 0),
@@ -167,6 +185,7 @@ def _serialize_scan_payload(
             "uncertainty": round(r.get("uncertainty", 0.0), 1),
             "signal": _map_signal(r.get("signal", "PASS")),
             "dayType": (r.get("day_type", "") or "").replace(" ", "_"),
+            "phase": phase,
             "adr": round(r.get("daily_atr", 0.0) or 0.0, 2),
             "adrRatio": round(r.get("move_ratio", 0.0) or 0.0, 1),
             "adrMult": round(adr_mult, 2),
@@ -183,6 +202,7 @@ def _serialize_scan_payload(
                 "spt": round(float(details.get("small_pullback_trend", 0.0)), 1),
                 "bpa": round(float(details.get("bpa_alignment", 0.0)), 1),
             },
+            "bpaActiveSetups": bpa_active_setups,
             "summary": r.get("summary", ""),
         }
         if cycle_phase:
