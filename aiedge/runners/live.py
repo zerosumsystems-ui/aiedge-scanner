@@ -42,9 +42,10 @@ import requests
 from dotenv import load_dotenv
 
 # ── Path setup ────────────────────────────────────────────────────────────────
-# Scanner repo root = two parents up from aiedge/runners/live.py
+# Scanner repo root = two parents up from aiedge/runners/live.py.
+# After `pip install -e .` no sys.path hack is needed — imports resolve via the
+# installed package. `ROOT` still resolves for logs, credentials, DASHBOARD_PATH.
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / "credentials" / ".env")
 
 from shared.brooks_score import score_gap

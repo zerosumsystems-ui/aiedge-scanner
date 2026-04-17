@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiedge-scanner"
+version = "0.1.0"
+description = "Real-time US equities scanner — Databento Live + Al Brooks price action scoring"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "UNLICENSED" }
+authors = [{ name = "William Kosloski" }]
+
+# Runtime deps — discovered via grep across aiedge/ + shared/ + bin/.
+# Keep this list alphabetized. Versions pin the major when the project relies
+# on stable API surface (pandas 2+ dtype behavior, databento Live API shape).
+dependencies = [
+    "databento>=0.70,<1",
+    "matplotlib>=3.7",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "python-dotenv>=1.0",
+    "pytz>=2024.1",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+# After `pip install -e .` these shell commands are on PATH:
+#   aiedge-scanner           — live scan (equivalent to `python live_scanner.py`)
+#   aiedge-brooks-score      — synthetic-data demo / historical universe scan
+aiedge-scanner = "aiedge.runners.live:main"
+aiedge-brooks-score = "bin.brooks_score_cli:_main"
+
+[tool.setuptools]
+# `shared/` still contains the legacy chart_renderer + bpa_detector + pattern_lab
+# that aiedge/ imports from; keep them installable until they migrate too.
+packages = [
+    "aiedge",
+    "aiedge.context",
+    "aiedge.dashboard",
+    "aiedge.data",
+    "aiedge.execution",
+    "aiedge.features",
+    "aiedge.risk",
+    "aiedge.runners",
+    "aiedge.signals",
+    "aiedge.storage",
+    "bin",
+    "shared",
+    "content",
+    "content.shared",
+    "content.stages",
+]
+py-modules = ["live_scanner"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*", "*Tests"]
+python_functions = ["test_*"]
+# Skip the pre-existing broken script-style test with a hardcoded path.
+addopts = "--ignore=tests/test_spt_qc.py"

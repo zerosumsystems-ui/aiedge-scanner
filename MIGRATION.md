@@ -304,12 +304,37 @@ Added in service of the 7-step plan from the previous session:
 - `analysis/failure.py` — root-cause taxonomy
 - `storage/pattern_lab.py` — add `failure_reason`, regime fields
 
-### Phase 7 — Package properly
+### Phase 7 — Package properly (complete 2026-04-17)
 
-- `pyproject.toml` with `[project]` metadata
-- Install as editable: `pip install -e .`
-- Kill `sys.path` hacks in entry points
-- Same package for scanner and web API
+- [x] `pyproject.toml` with `[project]` metadata — describes the
+      `aiedge-scanner` package, declares runtime deps (databento,
+      pandas, numpy, pytz, python-dotenv, requests, matplotlib, pyyaml),
+      optional-dep group `dev` (pytest, pytest-cov), and two console
+      entry points:
+        - `aiedge-scanner` → `aiedge.runners.live:main`
+        - `aiedge-brooks-score` → `bin.brooks_score_cli:_main`
+- [x] Install as editable: `pip install -e . --break-system-packages`
+- [x] Kill `sys.path.insert(0, ROOT)` hacks in the two entry points
+      (aiedge/runners/live.py + bin/brooks_score_cli.py). Leaves the
+      hacks in tools/ and tests/ for standalone-run robustness.
+- [x] `[tool.pytest.ini_options]` — autodiscovers `tests/`, ignores
+      the pre-existing broken `test_spt_qc.py`. pytest now reports
+      **293 passed**.
+
+Entry points verified on PATH after install:
+
+    $ which aiedge-scanner aiedge-brooks-score
+    /opt/homebrew/bin/aiedge-scanner
+    /opt/homebrew/bin/aiedge-brooks-score
+
+Packages declared: aiedge + aiedge.{context,dashboard,data,execution,
+features,risk,runners,signals,storage}, bin, shared, content, content.shared,
+content.stages; plus top-level `live_scanner` as a py_module (it's still
+the compat shim from Phase 4j).
+
+Note: `content/` and `shared/` are included so the installed package
+can still import from them during the transition; they'll be fully
+migrated in a later pass.
 
 ### Phase 8 — Expand test coverage
 

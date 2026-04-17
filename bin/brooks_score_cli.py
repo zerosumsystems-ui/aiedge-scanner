@@ -21,13 +21,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
-from pathlib import Path
-
 import pandas as pd
 
-# Make the scanner repo importable when run as a script from anywhere
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# After `pip install -e .` the package resolves without any sys.path hack.
+# Running this file directly (`python bin/brooks_score_cli.py`) also works
+# because Python puts the script's directory on sys.path by default.
 
 from aiedge.signals.components import LIQUIDITY_MIN_DOLLAR_VOL
 from shared.brooks_score import scan_universe, score_gap, score_multiple
@@ -312,17 +310,18 @@ def _run_scan(args):
     print(f"  Data: EQUS.MINI ohlcv-1d + ohlcv-1m via Databento\n")
 
 
-if __name__ == "__main__":
+def _main() -> None:
+    """Console entry point — exposed as `aiedge-brooks-score` after `pip install -e .`."""
     parser = argparse.ArgumentParser(
         description="Brooks Price Action Gap Scorer",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python bin/brooks_score_cli.py                          # Run synthetic demo
-  python bin/brooks_score_cli.py --mode scan              # Scan full universe
-  python bin/brooks_score_cli.py --mode scan --top 10
-  python bin/brooks_score_cli.py --mode scan --min-urgency 5 --max-uncertainty 4
-  python bin/brooks_score_cli.py --mode scan --tickers "AAPL,NVDA,NOW,MRVL,TSLA"
+  aiedge-brooks-score                          # Run synthetic demo
+  aiedge-brooks-score --mode scan              # Scan full universe
+  aiedge-brooks-score --mode scan --top 10
+  aiedge-brooks-score --mode scan --min-urgency 5 --max-uncertainty 4
+  aiedge-brooks-score --mode scan --tickers "AAPL,NVDA,NOW,MRVL,TSLA"
         """,
     )
     parser.add_argument(
@@ -361,3 +360,7 @@ Examples:
     elif args.mode == "scan":
         logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING)
         _run_scan(args)
+
+
+if __name__ == "__main__":
+    _main()
