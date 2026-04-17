@@ -140,7 +140,7 @@ Progress as of 2026-04-17:
       (Note: `STRONG_BODY_RATIO` and `SPIKE_MIN_BARS` remain in `context/daytype.py`
        for now — signals → context is allowed by layer rules, so components.py
        imports them from daytype. Phase 3h may promote them to `features/candles.py`.)
-- [ ] Phase 3g: risk (`_compute_risk_reward`) → `aiedge/risk/trader_eq.py`
+- [x] Phase 3g: risk (`_compute_risk_reward`) → `aiedge/risk/trader_eq.py`
 - [ ] Phase 3h: signal aggregator (`_determine_signal`, `_generate_summary`,
       `_score_bpa_patterns`) → `aiedge/signals/{aggregator,summary}.py`
 - [ ] Phase 3i: data helpers (`_normalize_databento_df`, `_resample_to_5min`,

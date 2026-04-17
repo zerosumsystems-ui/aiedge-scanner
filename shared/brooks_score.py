@@ -157,6 +157,7 @@ from aiedge.context.daytype import (  # noqa: E402
     _classify_day_type,
     _compute_two_sided_ratio,
 )
+from aiedge.risk.trader_eq import _compute_risk_reward  # noqa: E402
 from aiedge.signals.components import (  # noqa: E402
     BARS_STUCK_THRESHOLD,
     BEAR_SPIKE_RATIO,
@@ -455,54 +456,6 @@ def _detect_phase(df: pd.DataFrame, spike_bars: int, uncertainty: float,
     return "trading_range"
 
 
-def _compute_risk_reward(df: pd.DataFrame, gap_direction: str,
-                         prior_close: float, spike_bars: int,
-                         rr_direction_override: str = None) -> tuple[float, float, float]:
-    """Compute risk, reward, and R:R ratio with minimum risk floor.
-
-    rr_direction_override: if set, use this direction for R/R calc instead of
-    gap_direction. Used by bear-flip signals that need short-side R/R on a
-    gap-up day.
-    """
-    direction = rr_direction_override or gap_direction
-    current_price = df.iloc[-1]["close"]
-
-    avg_bar_range = df.apply(lambda r: r["high"] - r["low"], axis=1).mean()
-    min_risk = max(avg_bar_range * 0.5, MIN_RANGE)
-
-    if direction == "up":
-        lookback = min(5, len(df))
-        recent_low = df.iloc[-lookback:]["low"].min()
-        risk = max(current_price - recent_low, min_risk)
-
-        spike_high = df.iloc[:max(spike_bars, 1)]["high"].max()
-        spike_low = df.iloc[0]["low"]
-        spike_height = spike_high - spike_low
-
-        if spike_bars > 0 and len(df) > spike_bars:
-            pullback_low = df.iloc[spike_bars:]["low"].min()
-            target = pullback_low + spike_height
-        else:
-            target = current_price + spike_height
-        reward = max(target - current_price, 0.0)
-    else:
-        lookback = min(5, len(df))
-        recent_high = df.iloc[-lookback:]["high"].max()
-        risk = max(recent_high - current_price, min_risk)
-
-        spike_low = df.iloc[:max(spike_bars, 1)]["low"].min()
-        spike_high = df.iloc[0]["high"]
-        spike_height = spike_high - spike_low
-
-        if spike_bars > 0 and len(df) > spike_bars:
-            pullback_high = df.iloc[spike_bars:]["high"].max()
-            target = pullback_high - spike_height
-        else:
-            target = current_price - spike_height
-        reward = max(current_price - target, 0.0)
-
-    rr_ratio = reward / risk if risk > min_risk else 0.0
-    return round(risk, 2), round(reward, 2), round(rr_ratio, 2)
 
 
 def _determine_signal(urgency: float, uncertainty: float, gap_held: bool,
