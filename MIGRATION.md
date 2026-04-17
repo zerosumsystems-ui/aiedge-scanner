@@ -132,9 +132,13 @@ Progress as of 2026-04-17:
 - [x] Phase 3e: day-type classifier → `aiedge/context/daytype.py`
       (`_classify_day_type`, `_apply_day_type_weight`, `_compute_two_sided_ratio`,
       `DAY_TYPE_WEIGHTS` matrix — 540 LOC + 21 tests)
-- [ ] Phase 3f: signal components (17 `_score_*` functions) → `aiedge/signals/components.py`
-      (also consolidates `STRONG_BODY_RATIO`, `SPIKE_MIN_BARS` — currently homed in
-      `context/daytype.py` as a temporary convenience)
+- [x] Phase 3f-1: urgency scorers (15 `_score_*` + `_find_first_pullback` helper)
+      → `aiedge/signals/components.py`
+- [ ] Phase 3f-2: uncertainty scorers (`_score_uncertainty`, `_score_two_sided_ratio`,
+      `_score_liquidity_gaps`, `_check_liquidity`) → `aiedge/signals/components.py`
+      (Note: `STRONG_BODY_RATIO` and `SPIKE_MIN_BARS` remain in `context/daytype.py`
+       for now — signals → context is allowed by layer rules, so components.py
+       imports them from daytype. Phase 3h may promote them to `features/candles.py`.)
 - [ ] Phase 3g: risk (`_compute_risk_reward`) → `aiedge/risk/trader_eq.py`
 - [ ] Phase 3h: signal aggregator (`_determine_signal`, `_generate_summary`,
       `_score_bpa_patterns`) → `aiedge/signals/{aggregator,summary}.py`
@@ -142,10 +146,10 @@ Progress as of 2026-04-17:
       `_get_default_universe`) → `aiedge/data/{normalize,resample,universe}.py`
 - [ ] Phase 3j: misc helpers (`_detect_phase`, `_opening_range` helper callers)
 
-brooks_score.py: 3,928 → 2,880 LOC (1,048 removed so far, 26.7%).
-Tests: 85 passing in features/ + context/ (46 features + 39 context,
-including 21 new daytype tests) plus 1 pre-existing broken test
-unrelated to this work.
+brooks_score.py: 3,928 → 1,978 LOC (1,950 removed so far, 49.6%).
+Tests: 124 passing in features/ + context/ + signals/ (46 features +
+39 context + 39 signals) plus 1 pre-existing broken test unrelated
+to this work.
 
 Each phase leaves brooks_score.py importing from the new modules so
 existing consumers (live_scanner.py, pattern_lab_api.py, tests) keep
