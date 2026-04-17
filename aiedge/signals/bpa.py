@@ -10,6 +10,7 @@ later phase; for now the import still points at shared/.
 """
 
 import logging
+from typing import Optional
 
 import pandas as pd
 
@@ -40,6 +41,7 @@ def _score_bpa_patterns(
     df: pd.DataFrame,
     gap_direction: str,
     gap_fill_status: str,
+    adr: Optional[float] = None,
 ) -> tuple[float, list[dict]]:
     """Run bpa_detector on df and score how well detected patterns align with direction.
 
@@ -59,7 +61,7 @@ def _score_bpa_patterns(
         return 0.0, []
 
     try:
-        raw_setups = _bpa_detect_all(df)
+        raw_setups = _bpa_detect_all(df, adr=adr)
     except Exception:
         logger.warning("bpa_detector.detect_all raised — skipping BPA scoring")
         return 0.0, []

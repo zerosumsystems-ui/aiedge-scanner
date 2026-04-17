@@ -238,20 +238,27 @@ Progress as of 2026-04-17:
         (`_generate_dashboard` refactored to take `intraday_levels`,
          `dashboard_path`, `first_scan_hour`, `first_scan_min` as parameters;
          live_scanner keeps a wrapper that binds its module-level globals.)
-- [ ] Phase 4h: serializers (`_serialize_bars`, `_serialize_key_levels`,
+- [x] Phase 4h: serializers (`_serialize_bars`, `_serialize_key_levels`,
       `_serialize_scan_payload`) → `aiedge/dashboard/serializers.py`
-- [ ] Phase 4i: api client + notifiers (`_post_to_aiedge`, `update_apple_note`,
-      `fire_alert`) → `aiedge/dashboard/{api_client,notifiers}.py`
+      + api client (`_post_to_aiedge`, `AIEDGE_SCAN_URL`) →
+      `aiedge/dashboard/api_client.py`
+      (`_serialize_scan_payload` refactored to take `intraday_levels`,
+       `first_scan_hour`, `first_scan_min` as parameters; live_scanner keeps
+       wrappers that bind its globals. These four functions were initially
+       bundled into render.py by Phase 4g-2's wholesale block move; split
+       out here to match the architectural layout.)
+- [ ] Phase 4i: notifiers (`update_apple_note`, `fire_alert`) →
+      `aiedge/dashboard/notifiers.py`
 - [ ] Phase 4j: runners (`scan_thread_func`, `stream_thread_func`,
       `save_final_results`, `save_session_data`, `_replay_session`, `main`,
       `run_scan`) → `aiedge/runners/live.py`
 
-live_scanner.py: 2,972 → 1,033 LOC (1,939 removed so far, 65.2%).
+live_scanner.py: 2,972 → 1,074 LOC (1,898 removed so far, 63.9%).
 Tests: 218 passing across features/ + context/ + signals/ + risk/ + data/.
-(No new tests for pattern_lab / console / html — the functions either wrap
-SQLite (pattern_lab) or produce presentation output that diff-tests would
-lock in place; verified via end-to-end smoke through live_scanner import
-and a real _build_card_html call with sample data.)
+(No new tests for pattern_lab / console / html / serializers — the
+functions either wrap SQLite or produce presentation output that
+diff-tests would lock in place; end-to-end smoke verified via
+_build_card_html + _serialize_scan_payload with sample data.)
 
 ### Phase 4 (original map)
 

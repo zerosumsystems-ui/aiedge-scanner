@@ -62,7 +62,16 @@ from aiedge.data.databento import (
 )
 from aiedge.data.levels import fetch_intraday_key_levels
 from aiedge.data.resample import resample_to_5min
+from aiedge.dashboard.api_client import (
+    AIEDGE_SCAN_URL,
+    _post_to_aiedge as _post_to_aiedge_pure,
+)
 from aiedge.dashboard.charts import render_chart_base64
+from aiedge.dashboard.serializers import (
+    _serialize_bars,
+    _serialize_key_levels,
+    _serialize_scan_payload as _serialize_scan_payload_pure,
+)
 from aiedge.dashboard.render import (
     _HTML_FOOT,
     _HTML_HEAD,
@@ -495,6 +504,38 @@ def _generate_dashboard(
     _generate_dashboard_pure(
         results, df5m_map, now_et, total_symbols, passed, elapsed, interval_min,
         intraday_levels, DASHBOARD_PATH, FIRST_SCAN_HOUR, FIRST_SCAN_MIN,
+    )
+
+
+def _serialize_scan_payload(
+    results: list[dict],
+    now_et: datetime,
+    total_symbols: int,
+    passed: int,
+    elapsed: float,
+    interval_min: int,
+    df5m_map: "dict[str, pd.DataFrame] | None" = None,
+) -> dict:
+    """Backwards-compatible wrapper — binds intraday_levels + FIRST_SCAN_HOUR/MIN."""
+    return _serialize_scan_payload_pure(
+        results, now_et, total_symbols, passed, elapsed, interval_min,
+        intraday_levels, FIRST_SCAN_HOUR, FIRST_SCAN_MIN, df5m_map,
+    )
+
+
+def _post_to_aiedge(
+    results: list[dict],
+    now_et: datetime,
+    total_symbols: int,
+    passed: int,
+    elapsed: float,
+    interval_min: int,
+    df5m_map: "dict[str, pd.DataFrame] | None" = None,
+) -> None:
+    """Backwards-compatible wrapper — binds intraday_levels + FIRST_SCAN_HOUR/MIN."""
+    _post_to_aiedge_pure(
+        results, now_et, total_symbols, passed, elapsed, interval_min,
+        intraday_levels, FIRST_SCAN_HOUR, FIRST_SCAN_MIN, df5m_map,
     )
 
 
